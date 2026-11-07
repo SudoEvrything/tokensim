@@ -292,6 +292,7 @@ if(BUILD_TESTING)
   endif()
 endif()
 
+if(BUILD_TESTING)
 add_executable(bench_pretokenizer benchmarks/bench_pretokenizer.c)
 target_link_libraries(bench_pretokenizer PRIVATE tokensimd)
 
@@ -352,6 +353,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "Clang")
   target_compile_options(fuzz_decode_roundtrip PRIVATE -fsanitize=fuzzer)
   target_link_options(fuzz_decode_roundtrip PRIVATE -fsanitize=fuzzer)
   target_link_libraries(fuzz_decode_roundtrip PRIVATE tokensimd)
+endif()
 endif()
 
 set(CPACK_SOURCE_GENERATOR "TXZ")
