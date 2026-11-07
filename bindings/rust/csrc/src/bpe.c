@@ -3537,7 +3537,7 @@ void tsimd_plong_reserve(tsimd_pretok_cache_t *c, size_t entries) {
             c->lids = NULL;
         }
     }
-    c->lbits = bits;
+    c->lbits = (uint32_t)bits;
 }
 
 static _Atomic size_t plong_hits = 0, plong_misses = 0,
