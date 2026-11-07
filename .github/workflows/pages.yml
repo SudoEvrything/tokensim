@@ -99,10 +99,8 @@ jobs:
               if not os.path.isfile(frag):
                   continue
               body = open(frag).read()
-              body = body.replace('<h2>01 - Introduction</h2>',
-                  '<a class="repo-link" href="https://github.com/SudoEvrything/tokensim">tokensim on GitHub</a>\n<h2>01 - Introduction</h2>', 1)
-              body = body.replace('<h1>',
-                  '<h1>', 1)
+              link = '<a class="repo-link" href="https://github.com/SudoEvrything/tokensim">tokensim on GitHub</a>\n'
+              body = body.replace('<h2', link + '<h2', 1)
               html = f"""<!DOCTYPE html>
           <html>
           <head>
