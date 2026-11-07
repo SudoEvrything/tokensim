@@ -61,6 +61,19 @@ add_library(tokensimd STATIC
   src/simd/blocks_avx2.c
   src/simd/blocks_avx512.c
 )
+set(TSIMD_X86_TARGET OFF)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(AMD64)|(i[3-6]86)|(x86)")
+  set(TSIMD_X86_TARGET ON)
+elseif(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
+  set(TSIMD_X86_TARGET ON)
+endif()
+if(NOT TSIMD_X86_TARGET)
+  message(FATAL_ERROR
+    "TokenSIMD 1.x ships x86-64 kernels only (SSE2/AVX2/AVX-512); \
+the pretokenizer spanners and the serve path have no non-x86 port. \
+Build on x86-64, or wait for a release that declares scalar kernels.")
+endif()
+
 set_source_files_properties(src/pretokenizer/o200k_masks.c PROPERTIES COMPILE_OPTIONS "-mavx2")
 set_source_files_properties(src/pretokenizer/cl100k_masks.c PROPERTIES COMPILE_OPTIONS "-mavx2")
 set_source_files_properties(src/pretokenizer/nemo_masks.c PROPERTIES COMPILE_OPTIONS "-mavx2")
@@ -69,7 +82,7 @@ set_source_files_properties(src/pretokenizer/gpt2_masks.c PROPERTIES COMPILE_OPT
 set_source_files_properties(src/pretokenizer/kimi_masks.c PROPERTIES COMPILE_OPTIONS "-mavx2")
 
 set_source_files_properties(src/serve_x86.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+if(TSIMD_X86_TARGET)
   set_source_files_properties(src/nfc.c PROPERTIES COMPILE_OPTIONS "-mpopcnt")
 endif()
 
@@ -81,7 +94,7 @@ target_include_directories(tokensimd PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src/pretokenizer)
 target_link_libraries(tokensimd PUBLIC Threads::Threads)
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(AMD64)|(i[3-6]86)|(x86)")
+if(TSIMD_X86_TARGET)
   set_source_files_properties(src/simd/blocks_sse2.c PROPERTIES COMPILE_OPTIONS "-msse2")
   set_source_files_properties(src/simd/blocks_avx2.c PROPERTIES COMPILE_OPTIONS "-mavx2")
   set_source_files_properties(src/simd/blocks_avx512.c PROPERTIES
