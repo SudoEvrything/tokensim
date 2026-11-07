@@ -1,0 +1,73 @@
+[build-system]
+requires = ["scikit-build-core>=0.8"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "tsimd"
+version = "1.0.0"
+description = "TokenSIMD: high-throughput BPE tokenizer (SIMD pretokenizer, parallel encode)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "TokenSIMD contributors"}]
+keywords = ["tokenizer", "bpe", "nlp", "simd", "tiktoken", "sentencepiece"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Programming Language :: C",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Text Processing :: Linguistic",
+]
+
+[project.urls]
+Homepage = "https://pypi.org/project/tsimd/"
+
+[tool.scikit-build]
+cmake.version = ">=3.14"
+wheel.packages = []
+
+[tool.scikit-build.sdist]
+include = [
+  "src/**",
+  "include/**",
+  "cmake/**",
+  "bindings/python/*.py",
+  "bindings/python/*.c",
+  "CMakeLists.txt",
+  "LICENSE",
+  "README.md",
+]
+exclude = [
+  "models",
+  "testdata",
+  "docs",
+  "vendor",
+  "build",
+  "build-*",
+  "*.so",
+  "**/*.so",
+  "bindings/python/build",
+  "bindings/python/build/**",
+  "Testing",
+  "dist",
+  ".zcode",
+  ".claude",
+  ".pytest_cache",
+  "attic",
+  "bindings/rust/target",
+  "tests/fixtures/nemo_serve_drop.bin",
+  "crash-*",
+  "oom-*",
+  "timeout-*",
+  "slow-unit-*",
+  "*.log",
+  "prompt.txt",
+  "wrapper_ladder_table.txt",
+  "CONTEXT-MEMORY.md",
+  "checklist.md",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["bindings/python"]

@@ -1,0 +1,6 @@
+name = "tokensim"
+version = "0.1.0"
+defaultTargets = ["Tokensim"]
+
+[[lean_lib]]
+name = "Tokensim"

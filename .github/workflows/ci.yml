@@ -1,0 +1,49 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: version lockstep
+        run: bash scripts/check_versions.sh
+
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: configure
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            cmake -S . -B build-clang -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          else
+            cmake -S . -B build
+          fi
+      - name: build
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            cmake --build build-clang -j 4
+          else
+            cmake --build build -j 4
+          fi
+      - name: model-free smoke ctest
+        run: |
+          B=build; [ "${{ matrix.compiler }}" = "clang" ] && B=build-clang
+          cd $B && ctest -R "test_unicode|test_json|test_bpe_short|test_cls_table|test_scheme_guard|test_avx512_probe|test_spm_tie_rule|test_decode" --output-on-failure
+
+  avx512-sde:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: cmake -S . -B build && cmake --build build -j 4
+      - name: SDE clone + the avx512 battery
+        run: |
+          git clone --depth 1 https://github.com/rapidfuzz/intel-sde /tmp/sde-mirror
+          bash scripts/check_avx512_sde.sh

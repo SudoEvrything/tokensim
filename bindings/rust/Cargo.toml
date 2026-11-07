@@ -1,0 +1,28 @@
+[package]
+name = "tokensimd"
+version = "1.0.0"
+edition = "2021"
+description = "Safe Rust wrapper for TokenSIMD, a high-throughput BPE tokenizer"
+license-file = "csrc/LICENSE"
+readme = "README.md"
+keywords = ["tokenizer", "bpe", "nlp", "simd"]
+categories = ["text-processing", "api-bindings"]
+links = "tokensimd"
+build = "build.rs"
+include = [
+  "src/**",
+  "csrc/**",
+  "examples/**",
+  "build.rs",
+  "README.md",
+]
+
+[lib]
+name = "tokensimd"
+path = "src/lib.rs"
+
+[build-dependencies]
+cc = "1"
+
+[features]
+default = []

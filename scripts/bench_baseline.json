@@ -1,0 +1,5 @@
+{
+  "encode.cl100k.sequential": 38.0,
+  "pretok.gpt2.scalar-ref": 76.2,
+  "pretok.gpt2.simd": 283.6
+}

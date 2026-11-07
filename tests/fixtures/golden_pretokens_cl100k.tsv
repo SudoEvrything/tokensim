@@ -1,0 +1,25 @@
+	
+hello world	hello	 world
+Hello, WORLD!!  this_is-C++/code (v1.2.3); x=0b1010 & 0xff	Hello	,	 WORLD	!!	 	 this	_is	-C	++/	code	 (	v	1	.	2	.	3	);	 x	=	0	b	101	0	 &	 	0	xff
+I'm sure they'll've said it's Fred's doggo's bone... isn't it?	I	'm	 sure	 they	'll	've	 said	 it	's	 Fred	's	 doggo	's	 bone	...	 isn	't	 it	?
+  leading and   trailing   spaces   	 	 leading	 and	  	 trailing	  	 spaces	   
+line1\nline2\r\nline3\rline4\n\n\n  \t mixed \n\t ws	line	1	\n	line	2	\r\n	line	3	\r	line	4	\n\n\n	  \t	 mixed	 \n	\t	 ws
+tabs\tandverticalforms	tabs	\tand	vertical	forms
+numbers 123456789 42 7 1000000 3.14159	numbers	 	123	456	789	 	42	 	7	 	100	000	0	 	3	.	141	59
+unicode: héllo wörld ñ ü ß Ø	unicode	:	 héllo	 wörld	 ñ	 ü	 ß	 Ø
+cjk: 你好世界 中文测试 日本語テキスト	cjk	:	 你好世界	 中文测试	 日本語テキスト
+emoji: 🚀🎉 👨‍👩‍👧‍👦 family + ❤️ heart	emoji	:	 🚀🎉	 👨‍👩‍👧‍👦	 family	 +	 ❤️	 heart
+arabic: مرحبا بالعالم	arabic	:	 مرحبا	 بالعالم
+devanagari: नमस्ते दुनिया	devanagari	:	 नमस	्त	े	 द	ुन	िय	ा
+cyrillic: Привет мир	cyrillic	:	 Привет	 мир
+greek: Γειά σου Κόσμε	greek	:	 Γειά	 σου	 Κόσμε
+curly “quotes” and ‘apostrophes’ — em—dashes…	curly	 “	quotes	”	 and	 ‘	apostrophes	’	 —	 em	—dashes	…
+<|endoftext|>special<|im_start|>tokens<|im_end|>	<|	endoftext	|>	special	<|	im	_start	|>	tokens	<|	im	_end	|>
+a	a
+\n	\n
+ 	 
+!!!???...,,,;;;:::	!!!???...,,,;;;:::
+\0 binary ÿþý bytes	\0	 binary	 ÿþý	 bytes
+é́ combining chars	e	́́	 combining	 chars
+MixedCASE contraction'S DON'T	MixedCASE	 contraction	'S	 DON	'T
+  \n  x	  \n	 	 x

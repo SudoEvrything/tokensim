@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: TokenSIMD
+Description: High-throughput BPE tokenizer (SIMD pretokenizer, parallel encode)
+Version: @TSIMD_VERSION@
+Cflags: -I${includedir}
+Libs: -L${libdir} -ltokensimd
+Libs.private: -lpthread -lm
