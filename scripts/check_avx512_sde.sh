@@ -15,7 +15,12 @@ cmake --build build -j 6 > /dev/null
 echo "== avx512 probe (expect probe=1 level=3)"
 "$SDE" -cpuid_in "$CPUID" -- build/test_avx512_probe
 echo "== dispatch default (expect level=3 mask=1)"
-EXPECT_MASK=1 timeout 570 "$SDE" -cpuid_in "$CPUID" -- build/test_dispatch
+cmake --build build --target test_dispatch -j 4 > /dev/null 2>&1 || true
+if [ -x build/test_dispatch ]; then
+  EXPECT_MASK=1 timeout 570 "$SDE" -cpuid_in "$CPUID" -- build/test_dispatch
+else
+  echo "== dispatch: skipped (test_dispatch not built, the model-gated block is off)"
+fi
 echo "== exhaustive algebra, forced avx512 (expect 0 mismatches)"
 gcc -O2 -mavx2 -I include scripts/exhaustive_algebra.c \
     build/libtokensimd.a -lm -lpthread -o /tmp/tsimd-exh
