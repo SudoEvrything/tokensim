@@ -34,13 +34,7 @@ add_library(tokensim STATIC
   src/pretokenizer/gpt2.c
   src/pretokenizer/cl100k.c
   src/pretokenizer/o200k.c
-  src/pretokenizer/o200k_masks.c
-  src/pretokenizer/cl100k_masks.c
-  src/pretokenizer/nemo_masks.c
   src/pretokenizer/kimi.c
-  src/pretokenizer/kimi_masks.c
-  src/pretokenizer/gpt2_masks.c
-  src/pretokenizer/deepseek_masks.c
   src/pretokenizer/deepseek.c
   src/metaspace.c
   src/nfc.c
@@ -54,24 +48,39 @@ add_library(tokensim STATIC
   src/sys.c
   src/spm_tie_rule.c
   src/parallel.c
-  src/serve_x86.cpp
   src/simd/dispatch.c
   src/simd/blocks_scalar.c
+  src/simd/blocks_neon.c
   src/simd/blocks_sse2.c
   src/simd/blocks_avx2.c
   src/simd/blocks_avx512.c
 )
 set(TSIMD_X86_TARGET OFF)
+set(TSIMD_ARM64_TARGET OFF)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(AMD64)|(i[3-6]86)|(x86)")
   set(TSIMD_X86_TARGET ON)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)|(ARM64)")
+  set(TSIMD_ARM64_TARGET ON)
 elseif(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
   set(TSIMD_X86_TARGET ON)
+elseif(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+  set(TSIMD_ARM64_TARGET ON)
 endif()
-if(NOT TSIMD_X86_TARGET)
+if(NOT TSIMD_X86_TARGET AND NOT TSIMD_ARM64_TARGET)
   message(FATAL_ERROR
-    "TokenSIMD 1.x ships x86-64 kernels only (SSE2/AVX2/AVX-512); \
-the pretokenizer spanners and the serve path have no non-x86 port. \
-Build on x86-64, or wait for a release that declares scalar kernels.")
+    "TokenSIMD 1.x builds on x86-64 and aarch64 only; \
+other architectures have no kernel port. \
+Build on x86-64 or aarch64.")
+endif()
+if(TSIMD_X86_TARGET)
+  target_sources(tokensim PRIVATE
+    src/pretokenizer/o200k_masks.c
+    src/pretokenizer/cl100k_masks.c
+    src/pretokenizer/nemo_masks.c
+    src/pretokenizer/kimi_masks.c
+    src/pretokenizer/gpt2_masks.c
+    src/pretokenizer/deepseek_masks.c
+    src/serve_x86.cpp)
 endif()
 
 set_source_files_properties(src/pretokenizer/o200k_masks.c PROPERTIES COMPILE_OPTIONS "-mavx2")
@@ -179,8 +188,10 @@ install(FILES
 add_executable(tsimd-tokenize tools/tokenize_file.c)
 target_link_libraries(tsimd-tokenize PRIVATE tokensim)
 
+if(TSIMD_X86_TARGET)
 add_executable(bench_encode tools/bench_encode.c)
 target_link_libraries(bench_encode PRIVATE tokensim)
+endif()
 
 add_executable(bench_phases tools/bench_phases.c)
 target_link_libraries(bench_phases PRIVATE tokensim)
@@ -206,11 +217,13 @@ target_link_libraries(leak_probe PRIVATE tokensim)
 add_executable(ids_parity scripts/ids_parity.c)
 target_link_libraries(ids_parity PRIVATE tokensim)
 
+if(TSIMD_X86_TARGET)
 add_executable(deepseek_span_probe scripts/deepseek_span_probe.c)
 target_link_libraries(deepseek_span_probe PRIVATE tokensim)
 
 add_executable(span_probe scripts/span_probe.c)
 target_link_libraries(span_probe PRIVATE tokensim)
+endif()
 
 add_executable(kimi_span_diff scripts/kimi_span_diff.c)
 target_link_libraries(kimi_span_diff PRIVATE tokensim)
@@ -221,8 +234,10 @@ target_link_libraries(corpus_hash PRIVATE tokensim)
 add_executable(chunk_bisect scripts/chunk_bisect.c)
 target_link_libraries(chunk_bisect PRIVATE tokensim)
 
+if(TSIMD_X86_TARGET)
 add_executable(nemo_spin_probe scripts/nemo_spin_probe.c)
 target_link_libraries(nemo_spin_probe PRIVATE tokensim)
+endif()
 
 add_executable(uni_par_probe scripts/uni_par_probe.c)
 target_link_libraries(uni_par_probe PRIVATE tokensim)
@@ -236,18 +251,32 @@ target_link_libraries(gemma_unit_probe PRIVATE tokensim)
 include(CTest)
 if(BUILD_TESTING)
   enable_testing()
-  foreach(t test_added_scan test_avx512_probe test_bcls_tables test_bmp_props test_bpe test_bpe_short test_cache_state test_cl100k_masks test_cls_table test_deepseek_attach test_deepseek_masks test_fill_tail_guard test_fuzz test_gpt2_masks test_gpt2d_spanner test_hi_algebra test_hugepage_tables test_insert_slot test_json test_model_formats test_nemo_masks test_nfc_seg test_nfkc test_nul_keys test_par_split test_parallel test_parallel_into test_pcache_grow test_pcache_race test_pcache_serve test_pool_cache_bits test_pretokenizer test_reconstruct_order test_scheme_guard test_simd test_spm_normalize test_spm_trie test_tokenizer test_unicode test_worker_caps)
+  foreach(t test_added_scan test_avx512_probe test_bmp_props test_bpe test_bpe_short test_cache_state test_cls_table test_fuzz test_hugepage_tables test_insert_slot test_json test_model_formats test_neon_classify test_nfc_seg test_nfkc test_nul_keys test_par_split test_parallel test_parallel_into test_pcache_grow test_pcache_race test_pcache_serve test_pool_cache_bits test_pretokenizer test_reconstruct_order test_scheme_guard test_simd test_spm_normalize test_spm_trie test_tokenizer test_unicode test_worker_caps)
     add_executable(${t} tests/${t}.c tests/util.c)
     target_link_libraries(${t} PRIVATE tokensim)
     add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
   endforeach()
-  if(EXISTS ${CMAKE_SOURCE_DIR}/models/reference
-      AND EXISTS ${CMAKE_SOURCE_DIR}/testdata/owt.txt)
-    foreach(t test_o200k_masks test_batch_fused test_batch_nfc test_batch_scale test_bpe_heap_oracle test_bpe_path_agreement test_bpe_seam test_byte_ids_fallback test_cache_stress test_decode test_dual_cursor test_encode_into test_gemma_added_par test_gemma_metaspace test_giant_word_cliff test_ignore_merges test_kimi test_kimi_masks test_kimi_par_race test_mask_stats_gate test_merge_id_probe test_nemotron test_nfc test_nfc_reuse test_parallel_nfc test_pcache_upgrade test_pin_fault test_qwen3_nfc_speed test_shared_fallback test_shared_publish test_short_skip test_spm_cache test_spm_integration test_spm_par_degenerate test_spm_tie_rule test_spm_tiebreak test_spm_word_seam test_sys test_unigram test_unigram_chunk test_unigram_memo_corpus test_unigram_par test_vocabulary test_wholepiece_sim)
+  if(TSIMD_X86_TARGET)
+    foreach(t test_bcls_tables test_cl100k_masks test_deepseek_attach test_deepseek_masks test_fill_tail_guard test_gpt2_masks test_gpt2d_spanner test_hi_algebra test_nemo_masks test_kimi_masks)
       add_executable(${t} tests/${t}.c tests/util.c)
       target_link_libraries(${t} PRIVATE tokensim)
       add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
     endforeach()
+  endif()
+  if(EXISTS ${CMAKE_SOURCE_DIR}/models/reference
+      AND EXISTS ${CMAKE_SOURCE_DIR}/testdata/owt.txt)
+    foreach(t test_batch_fused test_batch_nfc test_batch_scale test_bpe_heap_oracle test_bpe_path_agreement test_bpe_seam test_byte_ids_fallback test_cache_stress test_decode test_dual_cursor test_encode_into test_gemma_added_par test_gemma_metaspace test_giant_word_cliff test_ignore_merges test_kimi test_kimi_par_race test_merge_id_probe test_nemotron test_nfc test_nfc_reuse test_parallel_nfc test_pcache_upgrade test_pin_fault test_qwen3_nfc_speed test_shared_fallback test_shared_publish test_short_skip test_spm_cache test_spm_integration test_spm_par_degenerate test_spm_tie_rule test_spm_tiebreak test_spm_word_seam test_sys test_unigram test_unigram_chunk test_unigram_memo_corpus test_unigram_par test_vocabulary test_wholepiece_sim)
+      add_executable(${t} tests/${t}.c tests/util.c)
+      target_link_libraries(${t} PRIVATE tokensim)
+      add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
+    endforeach()
+    if(TSIMD_X86_TARGET)
+      foreach(t test_o200k_masks test_mask_stats_gate)
+        add_executable(${t} tests/${t}.c tests/util.c)
+        target_link_libraries(${t} PRIVATE tokensim)
+        add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
+      endforeach()
+    endif()
   endif()
 
   if(EXISTS ${CMAKE_SOURCE_DIR}/models/reference
@@ -279,6 +308,7 @@ if(BUILD_TESTING)
     add_test(NAME serve_batched_batched COMMAND test_serve_batched batched)
     add_test(NAME serve_batched_perspan COMMAND test_serve_batched perspan)
 
+    if(TSIMD_X86_TARGET)
     add_executable(test_dispatch tests/test_dispatch.c)
     target_link_libraries(test_dispatch PRIVATE tokensim)
     add_test(NAME dispatch_force_avx512_falls_back COMMAND test_dispatch)
@@ -293,6 +323,7 @@ if(BUILD_TESTING)
     add_test(NAME dispatch_hash_crc32 COMMAND test_dispatch)
     set_tests_properties(dispatch_hash_crc32 PROPERTIES
       ENVIRONMENT "TSIMD_SIMD_FORCE=avx2;TSIMD_HASH_CRC32=1;EXPECT_MASK=1")
+    endif()
   endif()
 endif()
 
@@ -323,7 +354,7 @@ endif()
 add_executable(bench_pretok_mt tools/bench_pretok_mt.c)
 target_link_libraries(bench_pretok_mt PRIVATE tokensim)
 
-if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+if(CMAKE_C_COMPILER_ID MATCHES "Clang" AND TSIMD_X86_TARGET)
   add_executable(fuzz_pretokenize tests/fuzz_pretokenize.c)
   target_compile_options(fuzz_pretokenize PRIVATE -fsanitize=fuzzer)
   target_link_options(fuzz_pretokenize PRIVATE -fsanitize=fuzzer)

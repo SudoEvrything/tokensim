@@ -38,8 +38,30 @@ static inline int tsimd_cpu_bmi2(void) {
 }
 #endif
 
+#if defined(__aarch64__)
+#include <arm_neon.h>
+
+static inline uint32_t tsimd_neon_mask16(uint8x16_t v) {
+    uint64x2_t q = vreinterpretq_u64_u8(vshrq_n_u8(v, 7));
+    uint64_t lo = vgetq_lane_u64(q, 0);
+    uint64_t hi = vgetq_lane_u64(q, 1);
+    uint32_t r = 0;
+    for (int i = 0; i < 8; i++) {
+        r |= (uint32_t)(lo & 1) << i;
+        lo >>= 8;
+    }
+    for (int i = 0; i < 8; i++) {
+        r |= (uint32_t)(hi & 1) << (8 + i);
+        hi >>= 8;
+    }
+    return r;
+}
+#endif
+
 void tsimd_classify_block_scalar(const uint8_t *data, int case_insensitive,
                                 tsimd_cls_block_t *blk);
+void tsimd_classify_block_neon(const uint8_t *data, int case_insensitive,
+                              tsimd_cls_block_t *blk);
 void tsimd_classify_block_sse2(const uint8_t *data, int case_insensitive,
                               tsimd_cls_block_t *blk);
 void tsimd_classify_block_avx2(const uint8_t *data, int case_insensitive,
