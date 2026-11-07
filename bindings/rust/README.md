@@ -36,6 +36,11 @@ fn main() -> Result<(), String> {
 }
 ```
 
+For maximum throughput when you keep the ids, `encode_into`
+with a caller-owned buffer avoids the copy that `to_vec()` would
+make (at 6 threads the copy can cost about 40% of the reported
+throughput).
+
 Three things to know:
 
 - `encode` and `encode_threads` are byte-identical at any thread
