@@ -28,6 +28,9 @@ Homepage = "https://pypi.org/project/tsimd/"
 cmake.version = ">=3.14"
 wheel.packages = []
 
+[tool.scikit-build.cmake.define]
+BUILD_TESTING = "OFF"
+
 [tool.scikit-build.sdist]
 include = [
   "src/**",
