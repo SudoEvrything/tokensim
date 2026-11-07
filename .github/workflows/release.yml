@@ -26,7 +26,9 @@ jobs:
           - os: ubuntu-24.04-arm
             archs: aarch64
           - os: macos-15
-            archs: "x86_64 arm64"
+            archs: x86_64
+          - os: macos-15
+            archs: arm64
     steps:
       - uses: actions/checkout@v5
       - name: cibuildwheel
@@ -38,7 +40,7 @@ jobs:
           CIBW_SKIP: "*-musllinux_*"
       - uses: actions/upload-artifact@v5
         with:
-          name: wheels-${{ matrix.os }}
+          name: wheels-${{ matrix.os }}-${{ matrix.archs }}
           path: wheelhouse/*.whl
 
   versions:
