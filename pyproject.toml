@@ -3,7 +3,7 @@ requires = ["scikit-build-core>=0.8"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "tokensimd"
+name = "tokensim"
 version = "1.0.0"
 description = "TokenSIMD: high-throughput BPE tokenizer (SIMD pretokenizer, parallel encode)"
 readme = "README.md"
@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://pypi.org/project/tsimd/"
+Homepage = "https://pypi.org/project/tokensim/"
 
 [tool.scikit-build]
 cmake.version = ">=3.14"

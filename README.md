@@ -43,7 +43,7 @@ From the published packages (the C engine builds from source inside
 each one):
 
 ```sh
-uv pip install tokensimd         # or: pip install tokensimd (Python)
+uv pip install tokensim          # or: pip install tokensim (Python)
 cargo add tokensimd              # Rust
 ```
 
@@ -203,8 +203,8 @@ its reference.
 
 ## Bindings and packaging
 
-**Python** - install with `uv pip install tokensimd` (or `pip
-install tokensimd`); the sdist carries the C sources and builds them
+**Python** - install with `uv pip install tokensim` (or `pip
+install tokensim`); the sdist carries the C sources and builds them
 on install:
 
 ```python
