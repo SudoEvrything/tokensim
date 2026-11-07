@@ -94,12 +94,15 @@ jobs:
           }
           .repo-link:hover { text-decoration: underline; }
           """
-          backlink = '<a class="repo-link" href="https://github.com/SudoEvrything/tokensim">&#8592; tokensim on GitHub</a><br>'
           for md in ["README", "TECHNICAL-REPORT", "BENCHMARKS"]:
               frag = f"site/{md}.frag"
               if not os.path.isfile(frag):
                   continue
               body = open(frag).read()
+              body = body.replace('<h2>01 - Introduction</h2>',
+                  '<a class="repo-link" href="https://github.com/SudoEvrything/tokensim">tokensim on GitHub</a>\n<h2>01 - Introduction</h2>', 1)
+              body = body.replace('<h1>',
+                  '<h1>', 1)
               html = f"""<!DOCTYPE html>
           <html>
           <head>
@@ -108,7 +111,6 @@ jobs:
           <style>{css}</style>
           </head>
           <body>
-          {backlink}
           {body}
           </body>
           </html>"""
