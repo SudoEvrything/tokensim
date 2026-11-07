@@ -7,7 +7,7 @@ jobs:
   versions:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: version lockstep
         run: bash scripts/check_versions.sh
 
@@ -17,7 +17,7 @@ jobs:
       matrix:
         compiler: [gcc, clang]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: configure
         run: |
           if [ "${{ matrix.compiler }}" = "clang" ]; then
@@ -40,7 +40,7 @@ jobs:
   avx512-sde:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: build
         run: cmake -S . -B build && cmake --build build -j 4
       - name: SDE clone + the avx512 battery
