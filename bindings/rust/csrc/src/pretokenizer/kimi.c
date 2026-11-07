@@ -60,9 +60,8 @@ static size_t contraction_end(const uint8_t *d, size_t n, size_t p) {
     return p;
 }
 
-static size_t kimi_word(const uint8_t *d, size_t n, size_t i, size_t start,
+static size_t kimi_word(const uint8_t *d, size_t n, size_t start,
                         int phase_lower) {
-    int any = 0;
     size_t p = start;
     while (p < n) {
         uint8_t b = d[p];
@@ -73,7 +72,6 @@ static size_t kimi_word(const uint8_t *d, size_t n, size_t i, size_t start,
             } else {
                 phase_lower = 1;
             }
-            any = 1;
             p++;
             continue;
         }
@@ -88,7 +86,6 @@ static size_t kimi_word(const uint8_t *d, size_t n, size_t i, size_t start,
         } else if (cf == 2) {
             phase_lower = 1;
         }
-        any = 1;
         p += adv;
     }
     return contraction_end(d, n, p);
@@ -136,7 +133,7 @@ size_t tsimd_match_kimi(const uint8_t *d, size_t n, size_t i) {
 
     if (bl || (kimi_letterish(cp, cf) && cf != 0)) {
                 int seed = bl ? (d[i] >= 'a' && d[i] <= 'z') : (cf == 2);
-        size_t e = kimi_word(d, n, i, i + adv, seed);
+        size_t e = kimi_word(d, n, i + adv, seed);
         return e > i + adv ? e : i + adv;
     }
 
@@ -157,7 +154,7 @@ size_t tsimd_match_kimi(const uint8_t *d, size_t n, size_t i) {
                 }
             }
             if (l2) {
-                size_t e = kimi_word(d, n, i, j, seed);
+                size_t e = kimi_word(d, n, j, seed);
                 return e > j ? e : j;
             }
         }
@@ -193,7 +190,7 @@ size_t tsimd_match_kimi(const uint8_t *d, size_t n, size_t i) {
                 int seed = is_letter_ascii(d[i + adv])
                                ? (d[i + adv] >= 'a' && d[i + adv] <= 'z')
                                : (cf2 == 2);
-                size_t e = kimi_word(d, n, i, i + adv + adv2, seed);
+                size_t e = kimi_word(d, n, i + adv + adv2, seed);
                 return e > i + adv + adv2 ? e : i + adv + adv2;
             }
         }

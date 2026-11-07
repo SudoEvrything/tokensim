@@ -129,6 +129,9 @@ static int idvec_reserve(idvec_t *v, size_t want) {
     size_t cap = v->cap ? v->cap : 4096;
     while (cap < want) cap *= 2;
     uint32_t *grown;
+    if (getenv("TSIMD_LEAKTRACE"))
+        fprintf(stderr, "RESERVE v=%p old=%p new_cap=%zu\n",
+                (void*)v, (void*)v->ids, cap);
     if (v->foreign) {
         grown = tsimd_xmalloc(cap * sizeof(uint32_t));
         if (!grown) return -1;
@@ -2669,6 +2672,8 @@ int tsimd_tokenizer_encode_batch(tsimd_tokenizer_t *t,
         nlens = tsimd_xmalloc(n_docs * sizeof(size_t));
         if (!ncopies || !nlens) {
             tsimd_xfree(ncopies); tsimd_xfree(nlens);
+            free(out->offsets);
+            memset(out, 0, sizeof(*out));
             return -1;
         }
         int fellback = 0;
@@ -2712,6 +2717,12 @@ int tsimd_tokenizer_encode_batch(tsimd_tokenizer_t *t,
                                        &seq) != 0) {
                 free(flat);
                 free(out->offsets);
+                if (ncopies) {
+                    for (size_t e = 0; e < n_docs; e++)
+                        tsimd_xfree(ncopies[e]);
+                    tsimd_xfree(ncopies);
+                    tsimd_xfree(nlens);
+                }
                 return -1;
             }
             memcpy(flat + off, seq.ids, seq.count * sizeof(uint32_t));
@@ -2859,7 +2870,7 @@ int tsimd_tokenizer_encode_batch(tsimd_tokenizer_t *t,
         tsimd_xfree(nlens);
     }
     if (rc != 0) {
-        free(out->ids);
+        free(flat);
         free(out->offsets);
         memset(out, 0, sizeof(*out));
         return -1;

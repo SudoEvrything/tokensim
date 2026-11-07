@@ -28,7 +28,7 @@ jobs:
         env:
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: x86_64
-          CIBW_BUILD: "cp38-* cp39-* cp310-* cp311-* cp312-* cp313-*"
+          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
       - uses: actions/upload-artifact@v5
         with:
           name: wheels-${{ matrix.os }}
@@ -66,4 +66,4 @@ jobs:
       - name: publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --manifest-path bindings/rust/Cargo.toml
+        run: cargo publish --allow-dirty --manifest-path bindings/rust/Cargo.toml

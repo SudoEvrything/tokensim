@@ -252,7 +252,8 @@ int tsimd_model_load_tokenizer_json(tsimd_vocab_t *v, const char *path,
     tsimd_arena_init(&arena);
     size_t err_off = 0;
     const tsimd_json_value_t *root =
-        tsimd_json_parse(&arena, in.data, in.length, &err_off);
+        tsimd_json_parse(&arena, (const char *)in.data, in.length,
+        &err_off);
     if (!root || root->type != TSIMD_JSON_OBJECT) {
         fprintf(stderr, "tsimd: %s:%zu invalid JSON\n", path, err_off);
         tsimd_arena_reset(&arena);
@@ -314,7 +315,7 @@ int tsimd_model_load_tokenizer_json(tsimd_vocab_t *v, const char *path,
         tsimd_input_release(&in);
         return -1;
     }
-norm_done:
+norm_done: ;
 
     const tsimd_json_value_t *model = tsimd_json_obj_get(root, "model");
     if (!model) {
