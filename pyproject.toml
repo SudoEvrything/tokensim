@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "tokensim"
-version = "1.0.2"
+version = "1.0.3"
 description = "TokenSIMD: high-throughput BPE tokenizer (SIMD pretokenizer, parallel encode)"
 readme = "README.md"
 requires-python = ">=3.8"

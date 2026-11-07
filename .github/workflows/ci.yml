@@ -59,8 +59,10 @@ jobs:
           printf 'The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. How vexingly quick daft zebras jump 12345 times!\n' > /tmp/bench.txt
           for i in $(seq 1 131000); do cat /tmp/bench.txt; done > /tmp/bench16.txt
           ./tsimd-tokenize --format tiktoken /tmp/tiny.tiktoken cl100k /tmp/bench16.txt > /dev/null
-          echo "native aarch64 single-thread encode of ~16.7 MB:"
-          time ./tsimd-tokenize --format tiktoken /tmp/tiny.tiktoken cl100k /tmp/bench16.txt > /dev/null
+          echo "native aarch64 single-thread encode of ~16.7 MB (the scalar serve):"
+          TSIMD_SERVE_SW=0 time ./tsimd-tokenize --format tiktoken /tmp/tiny.tiktoken cl100k /tmp/bench16.txt > /dev/null
+          echo "native aarch64 single-thread encode of ~16.7 MB (the neon-classified serve):"
+          TSIMD_SERVE_SW=1 time ./tsimd-tokenize --format tiktoken /tmp/tiny.tiktoken cl100k /tmp/bench16.txt > /dev/null
 
   avx512-sde:
     runs-on: ubuntu-latest

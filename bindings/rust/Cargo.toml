@@ -1,6 +1,6 @@
 [package]
 name = "tokensim"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 description = "Safe Rust wrapper for TokenSIMD, a high-throughput BPE tokenizer"
 repository = "https://github.com/SudoEvrything/tokensim"

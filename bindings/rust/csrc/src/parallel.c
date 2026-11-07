@@ -293,6 +293,21 @@ static int fused_o200k_flush(worker_t *w, const uint8_t *data,
     return 0;
 }
 
+static int sw_fill_enabled(void) {
+#if defined(__x86_64__) || defined(__i386__)
+    return 0;
+#else
+    static atomic_int state = 0;
+    int v = atomic_load(&state);
+    if (v == 0) {
+        const char *e = getenv("TSIMD_SERVE_SW");
+        atomic_store(&state, (e && e[0] == '0') ? 2 : 1);
+        v = atomic_load(&state);
+    }
+    return v == 1;
+#endif
+}
+
 static inline void serve_prefetch_l2(const tsimd_pretok_cache_t *c,
                                      uint64_t hash) {
     size_t set = ((size_t)hash & (c->mask >> 1)) << 1;
@@ -695,7 +710,22 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
         {
 #endif
 
-            if (!dual_cur_disabled() && i + 128 < len) {
+            int sw_filled = 0;
+            if (sw_fill_enabled() &&
+                (w->t->scheme == TSIMD_PRETOK_CL100K ||
+                 w->t->scheme == TSIMD_PRETOK_O200K ||
+                 w->t->scheme == TSIMD_PRETOK_GPT2)) {
+                size_t end = i;
+                size_t fn = 0;
+                if (tsimd_pretok_serve_fill(w->t->scheme, data, len, i,
+                                            batch, cap, &fn, &end) == 0 &&
+                    fn > 0) {
+                    n = fn;
+                    i = end;
+                    sw_filled = 1;
+                }
+            }
+            if (!sw_filled && !dual_cur_disabled() && i + 128 < len) {
                 size_t s = serve_find_split(data, len,
                                             i + (len - i) / 2);
                 if (s > i && s < len) {
@@ -738,7 +768,7 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
                             break;
                         }
                 }
-            } else {
+            } else if (!sw_filled) {
                 while (n < cap && i < len)
                     if (serve_scalar_step(w, data, len, batch, c, cap,
                                           &n, &i) != 0) {

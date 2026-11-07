@@ -2,6 +2,7 @@
 #include "simd.h"
 #include "simd_internal.h"
 #include "unicode.h"
+#include "bpe.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -659,6 +660,133 @@ static size_t patch_chain(sw_t *st, const tsimd_cls_block_t *blk, size_t base,
     }
 }
 
+static int pretok_walk(sw_t *st) {
+    const size_t len = st->len;
+    const uint8_t *data = st->data;
+
+    while (st->span_start < len) {
+        if (st->err) return -1;
+        if (len - st->base < TSIMD_BLOCK) {
+            int sf = scalar_fallback(st);
+            if (st->err) return -1;
+            if (sf) return 0;
+            continue;
+        }
+        const tsimd_cls_block_t *blk = ensure_block(st, st->base);
+        if (!blk || blk->hi) {
+            st->cache_valid = 0;
+            int sf = scalar_fallback(st);
+            if (st->err) return -1;
+            if (sf) return 0;
+            continue;
+        }
+        tsimd_cls_block_t blk_local = *blk;
+
+        if (st->is_o200k &&
+            (blk_local.ap & ((blk_local.l >> 1) | blk_local.l |
+                             (blk_local.l << 1)))) {
+            st->cache_valid = 0;
+            int sf = scalar_fallback(st);
+            if (st->err) return -1;
+            if (sf) return 0;
+            continue;
+        }
+
+        if ((st->is_cl100k || st->is_o200k) && st->span_start == st->base) {
+            size_t np0 = patch_chain(st, &blk_local, st->base, st->base);
+            if (np0 == (size_t)-1) {
+                int sf = scalar_fallback(st);
+                if (st->err) return -1;
+                if (sf) return 0;
+                continue;
+            }
+            if (np0 != st->base) {
+                st->span_start = np0;
+                if (np0 - st->base >= TSIMD_BLOCK) {
+                    seek(st, np0);
+                    continue;
+                }
+
+            }
+        }
+
+        int next_is_s = 1;
+        if (!st->is_cl100k && st->base + TSIMD_BLOCK < len) {
+            uint8_t nc = data[st->base + TSIMD_BLOCK];
+            if (nc < 0x80) {
+                uint8_t ncls = tsimd_class_byte(nc);
+                next_is_s = (ncls >= CLS_SP && ncls <= CLS_C);
+            } else {
+                uint32_t ncp;
+                tsimd_char_class_t nxc;
+                size_t nadv = tsimd_utf8_next(data + st->base + TSIMD_BLOCK,
+                                              len - st->base - TSIMD_BLOCK,
+                                              &ncp, &nxc);
+                next_is_s = (nadv > 0 && nxc == TSIMD_CLASS_SPACE);
+            }
+        }
+
+        uint64_t m = st->is_cl100k ? cl100k_mask(st, &blk_local)
+                     : st->is_o200k ? o200k_mask(st, &blk_local)
+                                    : gpt2_mask(st, &blk_local, next_is_s);
+        {
+            static const char *dbg = NULL;
+            static int dbg_on = -1;
+            if (dbg_on == -1) {
+                dbg = getenv("TSIMD_SPAN_DBG");
+                dbg_on = dbg ? 1 : 0;
+            }
+            if (dbg_on && st->base >= 60 && st->base < 100) {
+                fprintf(stderr, "BLK base=%zu m=%016llx d=%016llx "
+                        "span_start=%zu d_phase=%u d1=%d d2=%d\n",
+                        st->base, (unsigned long long)m,
+                        (unsigned long long)blk_local.d, st->span_start,
+                        st->d_phase, st->d1, st->d2);
+            }
+        }
+        if (st->span_start > st->base)
+            m &= (st->span_start - st->base >= TSIMD_BLOCK)
+                     ? 0ULL
+                     : ~(((1ULL << (st->span_start - st->base)) - 1ULL));
+
+        int seeked = 0;
+        while (m) {
+            int bit = __builtin_ctzll(m);
+            m &= m - 1ULL;
+            size_t p = st->base + (size_t)bit;
+            if (p == st->span_start) continue;
+            push_span(st, st->span_start, p);
+            st->span_start = p;
+            if (st->is_cl100k || st->is_o200k) {
+                size_t np = patch_chain(st, &blk_local, st->base, p);
+                if (np == (size_t)-1) {
+                    int sf = scalar_fallback(st);
+                    if (st->err) return -1;
+                    if (sf) return 0;
+                    seeked = 1;
+                    break;
+                }
+                if (np != p) {
+                    st->span_start = np;
+                    if (np - st->base >= TSIMD_BLOCK) {
+                        seek(st, np);
+                        seeked = 1;
+                        break;
+                    }
+
+                    if (np - st->base >= TSIMD_BLOCK - 1)
+                        m = 0;
+                    else
+                        m &= ~(((2ULL << (np - st->base)) - 1ULL));
+                }
+            }
+        }
+        if (seeked) continue;
+        advance(st, &blk_local);
+    }
+    return st->err ? -1 : 0;
+}
+
 int tsimd_pretokenize_simd_ex(tsimd_pretok_scheme_t scheme,
                              const uint8_t *data, size_t len,
                              tsimd_span_fn fn, void *ud,
@@ -675,128 +803,73 @@ int tsimd_pretokenize_simd_ex(tsimd_pretok_scheme_t scheme,
     st.fn = fn;
     st.ud = ud;
     seek(&st, 0);
+    return pretok_walk(&st);
+}
 
-    while (st.span_start < len) {
-        if (st.err) return -1;
-        if (len - st.base < TSIMD_BLOCK) {
-            int sf = scalar_fallback(&st);
-            if (st.err) return -1;
-            if (sf) return 0;
-            continue;
-        }
-        const tsimd_cls_block_t *blk = ensure_block(&st, st.base);
-        if (!blk || blk->hi) {
-            st.cache_valid = 0;
-            int sf = scalar_fallback(&st);
-            if (st.err) return -1;
-            if (sf) return 0;
-            continue;
-        }
-        tsimd_cls_block_t blk_local = *blk;
+typedef struct {
+    tsimd_pcache_span_t *ents;
+    size_t cap;
+    size_t n;
+    size_t last_end;
+    const uint8_t *data;
+    size_t len;
+    int stop;
+} serve_fill_ctx_t;
 
-        if (st.is_o200k &&
-            (blk_local.ap & ((blk_local.l >> 1) | blk_local.l |
-                             (blk_local.l << 1)))) {
-            st.cache_valid = 0;
-            int sf = scalar_fallback(&st);
-            if (st.err) return -1;
-            if (sf) return 0;
-            continue;
-        }
-
-        if ((st.is_cl100k || st.is_o200k) && st.span_start == st.base) {
-            size_t np0 = patch_chain(&st, &blk_local, st.base, st.base);
-            if (np0 == (size_t)-1) {
-                int sf = scalar_fallback(&st);
-                if (st.err) return -1;
-                if (sf) return 0;
-                continue;
-            }
-            if (np0 != st.base) {
-                st.span_start = np0;
-                if (np0 - st.base >= TSIMD_BLOCK) {
-                    seek(&st, np0);
-                    continue;
-                }
-
-            }
-        }
-
-        int next_is_s = 1;
-        if (!st.is_cl100k && st.base + TSIMD_BLOCK < len) {
-            uint8_t nc = data[st.base + TSIMD_BLOCK];
-            if (nc < 0x80) {
-                uint8_t ncls = tsimd_class_byte(nc);
-                next_is_s = (ncls >= CLS_SP && ncls <= CLS_C);
-            } else {
-                uint32_t ncp;
-                tsimd_char_class_t nxc;
-                size_t nadv = tsimd_utf8_next(data + st.base + TSIMD_BLOCK,
-                                              len - st.base - TSIMD_BLOCK,
-                                              &ncp, &nxc);
-                next_is_s = (nadv > 0 && nxc == TSIMD_CLASS_SPACE);
-            }
-        }
-
-        uint64_t m = st.is_cl100k ? cl100k_mask(&st, &blk_local)
-                     : st.is_o200k ? o200k_mask(&st, &blk_local)
-                                   : gpt2_mask(&st, &blk_local, next_is_s);
-        {
-            static const char *dbg = NULL;
-            static int dbg_on = -1;
-            if (dbg_on == -1) {
-                dbg = getenv("TSIMD_SPAN_DBG");
-                dbg_on = dbg ? 1 : 0;
-            }
-            if (dbg_on && st.base >= 60 && st.base < 100) {
-                fprintf(stderr, "BLK base=%zu m=%016llx d=%016llx "
-                        "span_start=%zu d_phase=%u d1=%d d2=%d\n",
-                        st.base, (unsigned long long)m,
-                        (unsigned long long)blk_local.d, st.span_start,
-                        st.d_phase, st.d1, st.d2);
-            }
-        }
-        if (st.span_start > st.base)
-            m &= (st.span_start - st.base >= TSIMD_BLOCK)
-                     ? 0ULL
-                     : ~(((1ULL << (st.span_start - st.base)) - 1ULL));
-
-        int seeked = 0;
-        while (m) {
-            int bit = __builtin_ctzll(m);
-            m &= m - 1ULL;
-            size_t p = st.base + (size_t)bit;
-            if (p == st.span_start) continue;
-            push_span(&st, st.span_start, p);
-            st.span_start = p;
-            if (st.is_cl100k || st.is_o200k) {
-                size_t np = patch_chain(&st, &blk_local, st.base, p);
-                if (np == (size_t)-1) {
-                    int sf = scalar_fallback(&st);
-                    if (st.err) return -1;
-                    if (sf) return 0;
-                    seeked = 1;
-                    break;
-                }
-                if (np != p) {
-                    st.span_start = np;
-                    if (np - st.base >= TSIMD_BLOCK) {
-                        seek(&st, np);
-                        seeked = 1;
-                        break;
-                    }
-
-                    if (np - st.base >= TSIMD_BLOCK - 1)
-                        m = 0;
-                    else
-                        m &= ~(((2ULL << (np - st.base)) - 1ULL));
-                }
-            }
-        }
-        if (seeked) continue;
-        advance(&st, &blk_local);
+static int serve_fill_fn(void *ud, size_t s, size_t e) {
+    serve_fill_ctx_t *c = ud;
+    if (c->n >= c->cap) {
+        c->stop = 1;
+        return 2;
     }
-    return st.err ? -1 : 0;
+    tsimd_pcache_span_t *en = &c->ents[c->n];
+    en->ptr = c->data + s;
+    uint32_t el = (uint32_t)(e - s);
+    if (el <= TSIMD_PCACHE_MAX_SPAN)
+        tsimd_pcache_key_inline(en->ptr, el, c->data + c->len,
+                                &en->k0, &en->k1, &en->meta);
+    else {
+        en->k0 = 0;
+        en->k1 = 1;
+        en->meta = el;
+    }
+    c->last_end = e;
+    c->n++;
+    return 0;
+}
+
+int tsimd_pretok_serve_fill(tsimd_pretok_scheme_t scheme,
+                            const uint8_t *data, size_t len,
+                            size_t start,
+                            void *ents_v, size_t cap,
+                            size_t *n_out, size_t *end_out) {
+    serve_fill_ctx_t c;
+    memset(&c, 0, sizeof(c));
+    c.ents = (tsimd_pcache_span_t *)ents_v;
+    c.cap = cap;
+    c.data = data;
+    c.len = len;
+
+    sw_t st;
+    memset(&st, 0, sizeof(st));
+    st.data = data;
+    st.len = len;
+    st.is_cl100k = (scheme == TSIMD_PRETOK_CL100K);
+    st.is_o200k = (scheme == TSIMD_PRETOK_O200K);
+    st.ci = st.is_cl100k || st.is_o200k;
+    st.classify = tsimd_simd_classify();
+    st.fn = serve_fill_fn;
+    st.ud = &c;
+    seek(&st, start);
+
+    int rc = pretok_walk(&st);
+    *n_out = c.n;
+    if (c.stop) {
+        *end_out = c.last_end;
+        return 0;
+    }
+    *end_out = len;
+    return rc;
 }
 
 int tsimd_pretokenize_simd(tsimd_pretok_scheme_t scheme,
