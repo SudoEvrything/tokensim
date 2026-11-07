@@ -263,7 +263,7 @@ if(BUILD_TESTING)
     add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
   endforeach()
   if(TSIMD_X86_TARGET)
-    foreach(t test_bcls_tables test_cl100k_masks test_deepseek_attach test_deepseek_masks test_fill_tail_guard test_gpt2_masks test_gpt2d_spanner test_hi_algebra test_nemo_masks test_kimi_masks)
+    foreach(t test_bcls_tables test_cl100k_masks test_deepseek_attach test_deepseek_masks test_fill_tail_guard test_gpt2_masks test_gpt2d_spanner test_hi_algebra test_nemo_masks)
       add_executable(${t} tests/${t}.c tests/util.c)
       target_link_libraries(${t} PRIVATE tokensim)
       add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
@@ -277,7 +277,7 @@ if(BUILD_TESTING)
       add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
     endforeach()
     if(TSIMD_X86_TARGET)
-      foreach(t test_o200k_masks test_mask_stats_gate)
+      foreach(t test_o200k_masks test_mask_stats_gate test_kimi_masks)
         add_executable(${t} tests/${t}.c tests/util.c)
         target_link_libraries(${t} PRIVATE tokensim)
         add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
@@ -420,5 +420,16 @@ set(CPACK_SOURCE_IGNORE_FILES
     "/\.zcode/"
     "perf\.data"
     "\.log$"
-    "\.so$")
+    "\.so$"
+    "/AGENTS\.md"
+    "/CONTEXT-MEMORY\.md"
+    "/checklist\.md"
+    "/DESIGN\.md"
+    "/SIMD\.md"
+    "/PERF-PLAN\.md"
+    "/CAMPAIGN-TECHNICAL-REPORT\.md"
+    "/TECHNICAL-REPORT-draft\.md"
+    "/prompt\.txt"
+    "/TUTORIAL\.md"
+    "/wrapper_ladder_table\.txt")
 include(CPack)

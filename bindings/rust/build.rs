@@ -21,7 +21,6 @@ fn main() {
         return;
     }
 
-    let mut objs: Vec<PathBuf> = Vec::new();
     let mut plain = cc::Build::new();
     plain
         .include("csrc/include")
@@ -35,10 +34,11 @@ fn main() {
         }
         plain.file(f);
     }
-    objs.extend(plain.compile_intermediates());
+    let mut all_objs: Vec<PathBuf> = Vec::new();
+    all_objs.extend(plain.compile_intermediates());
 
     if x86 {
-        objs.extend(compile_group(
+        all_objs.extend(compile_group(
             &["-std=gnu17", "-fno-rtti", "-mavx2"],
             &[
                 "csrc/src/pretokenizer/o200k_masks.c",
@@ -51,24 +51,24 @@ fn main() {
                 "csrc/src/simd/blocks_avx2.c",
             ],
         ));
-        objs.extend(compile_group(
+        all_objs.extend(compile_group(
             &["-std=gnu17", "-msse2"],
             &["csrc/src/simd/blocks_sse2.c"],
         ));
-        objs.extend(compile_group(
+        all_objs.extend(compile_group(
             &["-std=gnu17", "-mavx512f", "-mavx512bw", "-mavx512vl"],
             &["csrc/src/simd/blocks_avx512.c"],
         ));
-        objs.extend(compile_group(
+        all_objs.extend(compile_group(
             &["-std=gnu17", "-msse4.2"],
             &["csrc/src/bpe.c"],
         ));
-        objs.extend(compile_group(
+        all_objs.extend(compile_group(
             &["-std=gnu17", "-mpopcnt"],
             &["csrc/src/nfc.c"],
         ));
     } else {
-        objs.extend(compile_group(
+        all_objs.extend(compile_group(
             &["-std=gnu17"],
             &[
                 "csrc/src/simd/blocks_sse2.c",
@@ -80,11 +80,19 @@ fn main() {
         ));
     }
 
-    println!("cargo:rustc-link-search=native={}", out.display());
-    link_libs(&target);
-    for o in &objs {
-        println!("cargo:rustc-link-arg={}", o.display());
+    let lib = out.join("libtokensim_full.a");
+    let _ = std::fs::remove_file(&lib);
+    let mut ar = std::process::Command::new("ar");
+    ar.arg("rcs").arg(&lib);
+    for o in &all_objs {
+        ar.arg(o);
     }
+    let st = ar.status().expect("ar not available");
+    assert!(st.success(), "ar failed");
+
+    println!("cargo:rustc-link-search=native={}", out.display());
+    println!("cargo:rustc-link-lib=static=tokensim_full");
+    link_libs(&target);
 }
 
 fn link_libs(target: &str) {
