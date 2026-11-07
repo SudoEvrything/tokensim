@@ -100,7 +100,7 @@ jobs:
           CSS
           for f in site/README.html site/TECHNICAL-REPORT.html site/BENCHMARKS.html; do
             sed -i 's|</head>|<link rel="stylesheet" href="style.css"></head>|' "$f"
-            sed -i 's|<body>|<body><a class="repo-link" href="https://github.com/SudoEvrything/tokensim">&#8592; github.com/SudoEvrything/tokensim</a><br>|' "$f"
+            sed -i 's|<body>|<body><a class="repo-link" href="https://github.com/SudoEvrything/tokensim">&#8592; tokensim on GitHub</a><br>|' "$f"
           done
       - uses: actions/upload-pages-artifact@v3
         with:
