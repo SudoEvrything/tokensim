@@ -20,14 +20,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-13]
+        os: [ubuntu-latest, macos-14]
     steps:
       - uses: actions/checkout@v5
       - name: cibuildwheel
         uses: pypa/cibuildwheel@v4.3.4
         env:
           CIBW_ARCHS_LINUX: x86_64
-          CIBW_ARCHS_MACOS: x86_64
+          CIBW_ARCHS_MACOS: arm64
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_*"
       - uses: actions/upload-artifact@v5
@@ -56,7 +56,7 @@ jobs:
           packages-dir: |
             artifacts/sdist/
             artifacts/wheels-ubuntu-latest/
-            artifacts/wheels-macos-13/
+            artifacts/wheels-macos-14/
 
   publish-crates:
     needs: [versions]
