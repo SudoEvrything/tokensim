@@ -55,15 +55,21 @@ add_library(tokensim STATIC
   src/simd/blocks_avx2.c
   src/simd/blocks_avx512.c
 )
+include(CheckCSourceCompiles)
+check_c_source_compiles("#if !defined(__x86_64__) && !defined(__i386__)
+#error not x86
+#endif
+int main(void) { return 0; }" TSIMD_COMPILES_X86)
+check_c_source_compiles("#if !defined(__aarch64__)
+#error not arm64
+#endif
+int main(void) { return 0; }" TSIMD_COMPILES_ARM64)
 set(TSIMD_X86_TARGET OFF)
 set(TSIMD_ARM64_TARGET OFF)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64)|(AMD64)|(i[3-6]86)|(x86)")
+if(TSIMD_COMPILES_X86)
   set(TSIMD_X86_TARGET ON)
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64)|(arm64)|(ARM64)")
-  set(TSIMD_ARM64_TARGET ON)
-elseif(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
-  set(TSIMD_X86_TARGET ON)
-elseif(APPLE AND CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+endif()
+if(TSIMD_COMPILES_ARM64)
   set(TSIMD_ARM64_TARGET ON)
 endif()
 if(NOT TSIMD_X86_TARGET AND NOT TSIMD_ARM64_TARGET)
