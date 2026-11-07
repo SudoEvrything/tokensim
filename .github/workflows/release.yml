@@ -50,13 +50,15 @@ jobs:
     steps:
       - uses: actions/download-artifact@v5
         with: {path: artifacts}
+      - name: stage
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name "*.whl" -o -name "*.tar.gz" \) -exec cp {} dist/ \;
+          ls -la dist/
       - name: publish
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: |
-            artifacts/sdist/
-            artifacts/wheels-ubuntu-latest/
-            artifacts/wheels-macos-15/
+          packages-dir: dist/
 
   publish-crates:
     needs: [versions]
