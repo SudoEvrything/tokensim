@@ -37,6 +37,31 @@ jobs:
           B=build; [ "${{ matrix.compiler }}" = "clang" ] && B=build-clang
           cd $B && ctest -R "test_unicode|test_json|test_bpe_short|test_cls_table|test_scheme_guard|test_avx512_probe|test_spm_tie_rule|test_decode" --output-on-failure
 
+  build-test-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+      - name: configure and build
+        run: cmake -S . -B build && cmake --build build -j 4
+      - name: model-free smoke ctest
+        run: |
+          cd build && ctest -R "test_unicode|test_json|test_bpe_short|test_cls_table|test_neon_classify|test_scheme_guard|test_spm_tie_rule|test_decode|test_parallel" --output-on-failure
+      - name: native encode bench
+        run: |
+          cd build
+          python3 - <<'PYEOF'
+          import base64
+          lines = []
+          for b in range(256):
+              lines.append(base64.b64encode(bytes([b])).decode() + f" {b}")
+          open("/tmp/tiny.tiktoken", "w").write("\n".join(lines) + "\n")
+          PYEOF
+          printf 'The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. How vexingly quick daft zebras jump 12345 times!\n' > /tmp/bench.txt
+          for i in $(seq 1 131000); do cat /tmp/bench.txt; done > /tmp/bench16.txt
+          ./tsimd-tokenize --format tiktoken --scheme cl100k /tmp/tiny.tiktoken /tmp/bench16.txt > /dev/null
+          echo "native aarch64 single-thread encode of ~16.7 MB:"
+          time ./tsimd-tokenize --format tiktoken --scheme cl100k /tmp/tiny.tiktoken /tmp/bench16.txt > /dev/null
+
   avx512-sde:
     runs-on: ubuntu-latest
     steps:

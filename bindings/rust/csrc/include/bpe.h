@@ -256,6 +256,7 @@ static inline int tsimd_pcache_stats_on(void) {
 }
 
 static inline int tsimd_hash_use_crc32(void) {
+#if defined(__x86_64__) || defined(__i386__)
     static atomic_int state;
     int v = atomic_load(&state);
     if (v == 0) {
@@ -271,6 +272,9 @@ static inline int tsimd_hash_use_crc32(void) {
         atomic_store(&state, v);
     }
     return v == 1;
+#else
+    return 0;
+#endif
 }
 
 uint64_t tsimd_hash_words_crc32(uint64_t a, uint64_t b);
@@ -342,13 +346,21 @@ static inline uint32_t tsimd_pcache_span_len(const tsimd_pcache_span_t *e) {
 static inline void tsimd_pcache_prefetch_l2(const tsimd_pretok_cache_t *c,
                                             uint64_t hash) {
     size_t set = ((size_t)hash << 1) & c->pair_mask;
+#if defined(__x86_64__) || defined(__i386__)
     _mm_prefetch((const char *)&c->entries[set], _MM_HINT_T1);
+#else
+    __builtin_prefetch(&c->entries[set], 0, 2);
+#endif
 }
 
 static inline void tsimd_pcache_prefetch_l1(const tsimd_pretok_cache_t *c,
                                             uint64_t hash) {
     size_t set = ((size_t)hash << 1) & c->pair_mask;
+#if defined(__x86_64__) || defined(__i386__)
     _mm_prefetch((const char *)&c->entries[set], _MM_HINT_T0);
+#else
+    __builtin_prefetch(&c->entries[set], 0, 3);
+#endif
 }
 
 int tsimd_o200k_mask_fill_keyed(const uint8_t *d, size_t len, void *state,

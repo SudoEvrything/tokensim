@@ -26,7 +26,7 @@ echo "== neon classify equivalence (expect OK) =="
 
 echo "== ctest under qemu =="
 ctest --test-dir "$BUILD" -j 4 \
-    -E "test_dispatch|test_worker_caps|test_avx512_probe|test_parallel|test_dual_cursor|test_short_skip|test_spm_cache" \
+    -E "test_dispatch|test_worker_caps|test_avx512_probe|test_dual_cursor|test_short_skip|test_spm_cache" \
     --timeout 900 > /tmp/arm_ctest.log 2>&1 || true
 grep -E "tests passed|tests failed" /tmp/arm_ctest.log
 grep "FAILED" /tmp/arm_ctest.log | head -6

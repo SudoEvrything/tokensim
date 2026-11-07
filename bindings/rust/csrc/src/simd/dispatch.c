@@ -83,6 +83,9 @@ static int detect_level(void) {
             atomic_store_explicit(&g_detected, TSIMD_SIMD_AVX512,
                                   memory_order_relaxed);
     }
+#elif defined(__aarch64__)
+    atomic_store_explicit(&g_detected, TSIMD_SIMD_NEON,
+                          memory_order_relaxed);
 #else
     atomic_store_explicit(&g_detected, TSIMD_SIMD_SCALAR,
                           memory_order_relaxed);
@@ -97,14 +100,16 @@ void tsimd_simd_set_forced(int level) {
 
 int tsimd_simd_level_supported(tsimd_simd_level_t level) {
     if (level == TSIMD_SIMD_SCALAR) return 1;
-#if !defined(TSIMD_X86)
-    return 0;
-#else
+#if defined(__aarch64__)
+    return level == TSIMD_SIMD_NEON;
+#elif defined(TSIMD_X86)
     if (level == TSIMD_SIMD_SSE2) return 1;
     if (level == TSIMD_SIMD_AVX2) return tsimd_cpu_avx2_os();
     if (level == TSIMD_SIMD_AVX512)
         return tsimd_cpu_avx512_os() &&
                tsimd_simd_avx512_probe() == 1;
+    return 0;
+#else
     return 0;
 #endif
 }
@@ -152,6 +157,9 @@ tsimd_simd_level_t tsimd_simd_level(void) {
             else if (strcmp(env, "avx512") == 0)
                 atomic_store_explicit(&g_forced, TSIMD_SIMD_AVX512,
                                       memory_order_relaxed);
+            else if (strcmp(env, "neon") == 0)
+                atomic_store_explicit(&g_forced, TSIMD_SIMD_NEON,
+                                      memory_order_relaxed);
         }
     }
     int level;
@@ -172,6 +180,7 @@ tsimd_classify_fn_t tsimd_simd_classify(void) {
         case TSIMD_SIMD_AVX512: return tsimd_classify_block_avx512;
         case TSIMD_SIMD_AVX2: return tsimd_classify_block_avx2;
         case TSIMD_SIMD_SSE2: return tsimd_classify_block_sse2;
+        case TSIMD_SIMD_NEON: return tsimd_classify_block_neon;
         default: return tsimd_classify_block_scalar;
     }
 }

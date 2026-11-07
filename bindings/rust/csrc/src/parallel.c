@@ -5,7 +5,9 @@
 #include "simd.h"
 #include "allocator.h"
 
+#if defined(__x86_64__) || defined(__i386__)
 #include <emmintrin.h>
+#endif
 #include <pthread.h>
 #include <stdatomic.h>
 #include <sched.h>
@@ -294,13 +296,21 @@ static int fused_o200k_flush(worker_t *w, const uint8_t *data,
 static inline void serve_prefetch_l2(const tsimd_pretok_cache_t *c,
                                      uint64_t hash) {
     size_t set = ((size_t)hash & (c->mask >> 1)) << 1;
+#if defined(__x86_64__) || defined(__i386__)
     _mm_prefetch((const char *)&c->entries[set], _MM_HINT_T1);
+#else
+    __builtin_prefetch(&c->entries[set], 0, 2);
+#endif
 }
 
 static inline void serve_prefetch_l1(const tsimd_pretok_cache_t *c,
                                      uint64_t hash) {
     size_t set = ((size_t)hash & (c->mask >> 1)) << 1;
+#if defined(__x86_64__) || defined(__i386__)
     _mm_prefetch((const char *)&c->entries[set], _MM_HINT_T0);
+#else
+    __builtin_prefetch(&c->entries[set], 0, 3);
+#endif
 }
 
 static int no_long_cache(void) {
@@ -434,13 +444,19 @@ static inline int serve_scalar_step(worker_t *w, const uint8_t *data,
                                     size_t *n, size_t *pos) {
     size_t e = w->t->scheme == TSIMD_PRETOK_CL100K
                    ? tsimd_match_cl100k(data, len, *pos)
-                   : w->t->scheme == TSIMD_PRETOK_DEEPSEEK
-                         ? tsimd_match_deepseek(data, len, *pos)
-                         : w->t->scheme == TSIMD_PRETOK_NEMO
-                               ? tsimd_match_nemo(data, len, *pos)
-                               : w->t->scheme == TSIMD_PRETOK_GPT2
-                                     ? tsimd_match_gpt2(data, len, *pos)
-                                     : tsimd_match_o200k(data, len, *pos);
+                   : w->t->scheme == TSIMD_PRETOK_QWEN25
+                         ? tsimd_match_qwen25(data, len, *pos)
+                         : w->t->scheme == TSIMD_PRETOK_GPT2D
+                               ? tsimd_match_gpt2d(data, len, *pos)
+                               : w->t->scheme == TSIMD_PRETOK_DEEPSEEK
+                                     ? tsimd_match_deepseek(data, len, *pos)
+                                     : w->t->scheme == TSIMD_PRETOK_NEMO
+                                           ? tsimd_match_nemo(data, len, *pos)
+                                           : w->t->scheme == TSIMD_PRETOK_GPT2
+                                                 ? tsimd_match_gpt2(data, len,
+                                                                    *pos)
+                                                 : tsimd_match_o200k(data, len,
+                                                                     *pos);
     if (e <= *pos || e > len) return -1;
     if (*n < cap) {
         tsimd_pcache_span_t *en = &ents[*n];
@@ -603,11 +619,13 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
     int rc = 0;
     memset(&w->mask_st, 0, sizeof(w->mask_st));
 
+#if defined(__x86_64__) || defined(__i386__)
     int use_scalar;
     if (tsimd_simd_level() < TSIMD_SIMD_AVX2)
         use_scalar = 1;
     else
         use_scalar = scalar_fill_enabled();
+#endif
 
     static int twophase_force = -1;
     if (twophase_force < 0) {
@@ -626,6 +644,7 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
 
         size_t n = 0;
         uint64_t ph_t0 = ph ? ph_rdtsc() : 0;
+#if defined(__x86_64__) || defined(__i386__)
         if (!use_scalar) {
 
             int c2;
@@ -672,6 +691,9 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
             if (c2 < 0) { rc = -1; break; }
             n = (size_t)c2;
         } else {
+#else
+        {
+#endif
 
             if (!dual_cur_disabled() && i + 128 < len) {
                 size_t s = serve_find_split(data, len,
@@ -737,9 +759,12 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
         uint64_t bh = 0;
         uint64_t m_hits = 0, m_big = 0, m_long = 0, m_longhit = 0,
                  m_bpe = 0;
+#if defined(__x86_64__) || defined(__i386__)
         const int use_x86 = serve_avx2_enabled();
+#endif
         for (size_t j = 0; j < n; ) {
 
+#if defined(__x86_64__) || defined(__i386__)
             if (use_x86) {
                 size_t stop = tsimd_serve_hot_avx2(
                     c->entries, c->pair_mask, c->mask, batch, n, j,
@@ -753,6 +778,7 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
                 j = stop;
                 if (j >= n) break;
             }
+#endif
             if (j + TSIMD_SERVE_D < n)
                 serve_prefetch_l1(c, batch[j + TSIMD_SERVE_D].meta);
             tsimd_pcache_span_t *en = &batch[j];
@@ -1114,8 +1140,13 @@ static int bserve_flush(bserve_ctx_t *f) {
         } else if (got_hit) {
             uint32_t *p = out->ids + base + cur;
 
+#if defined(__x86_64__) || defined(__i386__)
             _mm_storeu_si128((__m128i *)(void *)p,
                              _mm_set_epi64x((long long)ex, (long long)ab));
+#else
+            uint64_t pair[2] = {(uint64_t)ab, (uint64_t)ex};
+            memcpy(p, pair, sizeof(pair));
+#endif
             cur += adv;
         } else {
             size_t wbase = w->ws.out_count;
@@ -1276,6 +1307,7 @@ static int idvec_append_out(worker_t *w, idvec_t *out) {
 }
 
 static int kimi_masks_off(void) {
+#if defined(__x86_64__) || defined(__i386__)
     static atomic_int state = 0;
     int v = atomic_load(&state);
     if (v == 0) {
@@ -1284,6 +1316,9 @@ static int kimi_masks_off(void) {
         v = atomic_load(&state);
     }
     return v != 1;
+#else
+    return 1;
+#endif
 }
 
 static int gather_nt_enabled(void) {
@@ -1298,6 +1333,7 @@ static int gather_nt_enabled(void) {
 }
 
 static void copy_stream_u32(uint32_t *dst, const uint32_t *src, size_t n) {
+#if defined(__x86_64__) || defined(__i386__)
     size_t i = 0;
     while (i < n && ((uintptr_t)(dst + i) & 15)) {
         dst[i] = src[i];
@@ -1308,6 +1344,9 @@ static void copy_stream_u32(uint32_t *dst, const uint32_t *src, size_t n) {
                          _mm_loadu_si128(
                              (const __m128i *)(const void *)(src + i)));
     for (; i < n; i++) dst[i] = src[i];
+#else
+    memcpy(dst, src, n * sizeof(uint32_t));
+#endif
 }
 
 static int run_one_job(worker_t *w, const job_t *job, idvec_t *out) {
@@ -1337,7 +1376,9 @@ static int run_one_job(worker_t *w, const job_t *job, idvec_t *out) {
             }
             off += src[j].count;
         }
+#if defined(__x86_64__) || defined(__i386__)
         if (nt) _mm_sfence();
+#endif
         return 0;
     }
     if (job->kind == JOB_SPECIAL) return idvec_push(out, job->special_id);
@@ -2356,6 +2397,7 @@ static int plan_buffer(joblist_t *jl, tsimd_tokenizer_t *t,
     while (pos < len) {
         size_t cand = len;
         if (use_simd_scan) {
+#if defined(__x86_64__) || defined(__i386__)
             __m128i vb[8];
             for (int k = 0; k < nfb; k++)
                 vb[k] = _mm_set1_epi8((char)fbytes[k]);
@@ -2375,6 +2417,26 @@ static int plan_buffer(joblist_t *jl, tsimd_tokenizer_t *t,
             }
             for (; p < len && cand == len; p++)
                 if (first[data[p]]) cand = p;
+#elif defined(__aarch64__)
+            uint8x16_t vb[8];
+            for (int k = 0; k < nfb; k++)
+                vb[k] = vdupq_n_u8(fbytes[k]);
+            size_t p = pos;
+            while (p + 16 <= len) {
+                uint8x16_t v = vld1q_u8(data + p);
+                uint8x16_t m = vceqq_u8(v, vb[0]);
+                for (int k = 1; k < nfb; k++)
+                    m = vorrq_u8(m, vceqq_u8(v, vb[k]));
+                uint32_t mask = tsimd_neon_mask16(m);
+                if (mask) {
+                    cand = p + (size_t)__builtin_ctz(mask);
+                    break;
+                }
+                p += 16;
+            }
+            for (; p < len && cand == len; p++)
+                if (first[data[p]]) cand = p;
+#endif
         } else {
             const uint8_t *hit = NULL;
             for (int k = 0; k < nfb; k++) {

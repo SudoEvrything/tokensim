@@ -1,17 +1,15 @@
 use std::env;
 use std::path::PathBuf;
 
-// The per-file ISA flag table mirrors CMakeLists.txt:79-120. cc applies
-// flags to the whole invocation, so each ISA group compiles separately
-// and the plain group carries everything unflagged.
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=csrc");
     let target = env::var("TARGET").unwrap_or_default();
     let x86 = target.contains("x86_64") || target.contains("i686");
-    if !x86 {
+    let arm64 = target.contains("aarch64");
+    if !x86 && !arm64 {
         panic!(
-            "TokenSIMD 1.x ships x86-64 kernels only (SSE2/AVX2/AVX-512); \
+            "TokenSIMD 1.x builds on x86-64 and aarch64; \
              this target ({target}) has no port yet."
         );
     }
@@ -19,7 +17,7 @@ fn main() {
 
     if let Ok(dir) = env::var("TOKENSIMD_LIB_DIR") {
         println!("cargo:rustc-link-search=native={dir}");
-            link_libs(&target);
+        link_libs(&target);
         return;
     }
 
@@ -39,29 +37,48 @@ fn main() {
     }
     objs.extend(plain.compile_intermediates());
 
-    objs.extend(compile_group(
-        &["-std=gnu17", "-fno-rtti", "-mavx2"],
-        &[
-            "csrc/src/pretokenizer/o200k_masks.c",
-            "csrc/src/pretokenizer/cl100k_masks.c",
-            "csrc/src/pretokenizer/nemo_masks.c",
-            "csrc/src/pretokenizer/deepseek_masks.c",
-            "csrc/src/pretokenizer/gpt2_masks.c",
-            "csrc/src/pretokenizer/kimi_masks.c",
-            "csrc/src/serve_x86.cpp",
-            "csrc/src/simd/blocks_avx2.c",
-        ],
-    ));
-    objs.extend(compile_group(
-        &["-std=gnu17", "-msse2"],
-        &["csrc/src/simd/blocks_sse2.c"],
-    ));
-    objs.extend(compile_group(
-        &["-std=gnu17", "-mavx512f", "-mavx512bw", "-mavx512vl"],
-        &["csrc/src/simd/blocks_avx512.c"],
-    ));
-    objs.extend(compile_group(&["-std=gnu17", "-msse4.2"], &["csrc/src/bpe.c"]));
-    objs.extend(compile_group(&["-std=gnu17", "-mpopcnt"], &["csrc/src/nfc.c"]));
+    if x86 {
+        objs.extend(compile_group(
+            &["-std=gnu17", "-fno-rtti", "-mavx2"],
+            &[
+                "csrc/src/pretokenizer/o200k_masks.c",
+                "csrc/src/pretokenizer/cl100k_masks.c",
+                "csrc/src/pretokenizer/nemo_masks.c",
+                "csrc/src/pretokenizer/deepseek_masks.c",
+                "csrc/src/pretokenizer/gpt2_masks.c",
+                "csrc/src/pretokenizer/kimi_masks.c",
+                "csrc/src/serve_x86.cpp",
+                "csrc/src/simd/blocks_avx2.c",
+            ],
+        ));
+        objs.extend(compile_group(
+            &["-std=gnu17", "-msse2"],
+            &["csrc/src/simd/blocks_sse2.c"],
+        ));
+        objs.extend(compile_group(
+            &["-std=gnu17", "-mavx512f", "-mavx512bw", "-mavx512vl"],
+            &["csrc/src/simd/blocks_avx512.c"],
+        ));
+        objs.extend(compile_group(
+            &["-std=gnu17", "-msse4.2"],
+            &["csrc/src/bpe.c"],
+        ));
+        objs.extend(compile_group(
+            &["-std=gnu17", "-mpopcnt"],
+            &["csrc/src/nfc.c"],
+        ));
+    } else {
+        objs.extend(compile_group(
+            &["-std=gnu17"],
+            &[
+                "csrc/src/simd/blocks_sse2.c",
+                "csrc/src/simd/blocks_avx2.c",
+                "csrc/src/simd/blocks_avx512.c",
+                "csrc/src/bpe.c",
+                "csrc/src/nfc.c",
+            ],
+        ));
+    }
 
     println!("cargo:rustc-link-search=native={}", out.display());
     link_libs(&target);

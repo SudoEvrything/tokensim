@@ -705,11 +705,19 @@ static int test_serve_avx2_arms(void) {
             return 1;
         }
         size_t c1 = tsimd_serve_avx2_pieces();
+#if defined(__x86_64__) || defined(__i386__)
         if (c1 <= c0) {
             fprintf(stderr, "avx2: the arm did not run (counter %zu -> "
                             "%zu)\n", c0, c1);
             return 1;
         }
+#else
+        if (c1 != c0) {
+            fprintf(stderr, "avx2: the arm ran on arm64 (counter %zu -> "
+                            "%zu)\n", c0, c1);
+            return 1;
+        }
+#endif
         if (on.id_count != n_off ||
             memcmp(on.ids, ids_off, n_off * 4) != 0) {
             fprintf(stderr, "avx2: ids differ at %d threads (%zu vs %zu)\n",

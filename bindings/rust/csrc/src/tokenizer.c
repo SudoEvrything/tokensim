@@ -322,6 +322,7 @@ void tsimd_serve_state_free(tsimd_tokenizer_t *t);
 int tsimd_batched_serve_disabled(void);
 
 static int kimi_masks_off(void) {
+#if defined(__x86_64__) || defined(__i386__)
     static atomic_int state = 0;
     int v = atomic_load(&state);
     if (v == 0) {
@@ -330,6 +331,9 @@ static int kimi_masks_off(void) {
         v = atomic_load(&state);
     }
     return v != 1;
+#else
+    return 1;
+#endif
 }
 void tsimd_serve_env_refresh(void);
 int tsimd_serve_env_per_call(void);
@@ -448,9 +452,13 @@ static uint8_t *tsimd_metaspace_scratch(size_t need) {
 }
 
 static uint64_t tsimd_dbg_tsc(void) {
+#if defined(__x86_64__) || defined(__i386__)
     unsigned lo, hi;
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
     return ((uint64_t)hi << 32) | lo;
+#else
+    return 0;
+#endif
 }
 
 static int spm_encode_par_cached(tsimd_tokenizer_t *t,
@@ -1200,6 +1208,12 @@ typedef struct {
     uint64_t t_scan, t_norm, t_copy;
 } pnorm_job_t;
 
+#if defined(__x86_64__) || defined(__i386__)
+static inline uint64_t pnorm_rdtsc(void) { return pnorm_rdtsc(); }
+#else
+static inline uint64_t pnorm_rdtsc(void) { return 0; }
+#endif
+
 static void *pnorm_worker(void *arg) {
     pnorm_job_t *j = arg;
 
@@ -1208,17 +1222,17 @@ static void *pnorm_worker(void *arg) {
     for (size_t c = 0; c < j->n_chunks; c++) {
         const uint8_t *p = j->data + j->seams[c];
         size_t n = j->seams[c + 1] - j->seams[c];
-        uint64_t d0 = dbg ? __builtin_ia32_rdtsc() : 0;
+        uint64_t d0 = dbg ? pnorm_rdtsc() : 0;
         int changed = j->compat ? tsimd_nfkc_may_change(p, n)
                                 : tsimd_nfc_may_change(p, n);
-        if (dbg) { j->t_scan += __builtin_ia32_rdtsc() - d0; d0 = __builtin_ia32_rdtsc(); }
+        if (dbg) { j->t_scan += pnorm_rdtsc() - d0; d0 = pnorm_rdtsc(); }
         if (changed) {
             size_t nn;
             {
-                uint64_t n0 = dbg ? __builtin_ia32_rdtsc() : 0;
+                uint64_t n0 = dbg ? pnorm_rdtsc() : 0;
                 nn = tsimd_nfc_normalize(p, n, j->scratch,
                                          j->scratch_cap);
-                if (dbg) j->t_norm += __builtin_ia32_rdtsc() - n0;
+                if (dbg) j->t_norm += pnorm_rdtsc() - n0;
             }
             if (nn == (size_t)-1) { j->sizes[c] = (size_t)-1; continue; }
             if (nn > n) {
@@ -1235,7 +1249,7 @@ static void *pnorm_worker(void *arg) {
             memcpy(j->out + j->seams[c], p, n);
             j->sizes[c] = n;
         }
-        if (dbg) j->t_copy += __builtin_ia32_rdtsc() - d0;
+        if (dbg) j->t_copy += pnorm_rdtsc() - d0;
     }
     tsimd_nfc_tls_release();
     return NULL;

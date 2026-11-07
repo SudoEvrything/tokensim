@@ -888,11 +888,15 @@ static int spm_bucket_merge(const tsimd_vocab_t *v, tsimd_bpe_workspace_t *ws,
     return 0;
 }
 
+#if defined(__x86_64__) || defined(__i386__)
 static uint64_t bpe_rdtsc(void) {
     unsigned lo, hi;
     __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
     return ((uint64_t)hi << 32) | lo;
 }
+#else
+static uint64_t bpe_rdtsc(void) { return 0; }
+#endif
 
 static uint64_t t_seam, t_hash, t_probe, t_merge, t_push;
 static uint64_t n_units, n_miss, n_seamcalls;
@@ -2841,17 +2845,27 @@ static int tsimd_unigram_encode_par_whole(
     return 0;
 }
 
+#if defined(__x86_64__) || defined(__i386__)
 #include <immintrin.h>
+#endif
 
 static inline uint64_t span_hash_words(uint64_t a, uint64_t b) {
     return tsimd_pcache_hash_words_64(a, b);
 }
 
+#if defined(__x86_64__) || defined(__i386__)
 __attribute__((target("sse4.2"), noinline))
 uint64_t tsimd_hash_words_crc32(uint64_t a, uint64_t b) {
     return (uint64_t)__builtin_ia32_crc32di(
         (uint32_t)__builtin_ia32_crc32di(0, a), b);
 }
+#else
+uint64_t tsimd_hash_words_crc32(uint64_t a, uint64_t b) {
+    (void)a;
+    (void)b;
+    return 1;
+}
+#endif
 
 void tsimd_pcache_key_hash_bounded(const uint8_t *bytes, size_t len,
                                    const uint8_t *buf_end,

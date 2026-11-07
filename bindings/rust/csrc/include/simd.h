@@ -8,7 +8,8 @@ typedef enum {
     TSIMD_SIMD_SCALAR = 0,
     TSIMD_SIMD_SSE2,
     TSIMD_SIMD_AVX2,
-    TSIMD_SIMD_AVX512
+    TSIMD_SIMD_AVX512,
+    TSIMD_SIMD_NEON
 } tsimd_simd_level_t;
 
 int tsimd_simd_avx512_probe(void);

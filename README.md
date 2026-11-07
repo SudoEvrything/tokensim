@@ -129,14 +129,18 @@ count, and a test keeps that true.
 
 ### The ISA story
 
-The engine runs on SSE2 (the x86-64 baseline), AVX2, and AVX-512,
+On x86-64 the engine runs on SSE2 (the baseline), AVX2, and AVX-512,
 with the ISA flags applied per source file so the portable code
 stays portable. CPUs sometimes report features they cannot
 execute, so tokensim asks the CPU to prove it: a small AVX-512
 kernel runs under a crash handler once at startup, and a fault
 means a permanent downgrade to AVX2. The dispatch is verified under
 Intel SDE, an emulator that runs the AVX-512 paths on machines
-without the hardware.
+without the hardware. On aarch64 the pretokenizer classification
+runs on NEON (mandatory in armv8-a), the encode engines run the
+portable scalar kernels, and the parallel serve path takes the
+scalar steps; the ids are byte-identical to the x86 build, verified
+cross-arch under emulation.
 
 ## Model formats
 
@@ -261,8 +265,10 @@ or pkg-config (after `cmake --install build --prefix ~/.local`):
 cc myapp.c $(pkg-config --cflags --libs tokensim) -o myapp
 ```
 
-The library is x86-64 (SSE2 baseline; AVX2/AVX-512 dispatched at
-runtime with the fault-tolerant downgrade described above).
+The library builds on x86-64 and aarch64. On x86-64 the baseline is
+SSE2 with AVX2/AVX-512 dispatched at runtime (the fault-tolerant
+downgrade described above); on aarch64 the classify runs on NEON and
+the serve path takes the scalar steps.
 `fuzz_tokenizer` checks the three core invariants over arbitrary
 bytes, and `scripts/bench_track.py --save|--check` tracks
 throughput regressions against a JSON baseline.
