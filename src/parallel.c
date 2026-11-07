@@ -129,9 +129,6 @@ static int idvec_reserve(idvec_t *v, size_t want) {
     size_t cap = v->cap ? v->cap : 4096;
     while (cap < want) cap *= 2;
     uint32_t *grown;
-    if (getenv("TSIMD_LEAKTRACE"))
-        fprintf(stderr, "RESERVE v=%p old=%p new_cap=%zu\n",
-                (void*)v, (void*)v->ids, cap);
     if (v->foreign) {
         grown = tsimd_xmalloc(cap * sizeof(uint32_t));
         if (!grown) return -1;
