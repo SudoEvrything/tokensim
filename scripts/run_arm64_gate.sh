@@ -64,8 +64,12 @@ run_case tiktoken o200k "$M/o200k_base.tiktoken" - /tmp/arm_owt16.txt 1
 run_case tokenizer_json - "$M/reference/deepseek_tokenizer.json" - /tmp/arm_owt16.txt 1
 run_case tokenizer_json - "$M/reference/gemma3-4b_tokenizer.json" - /tmp/arm_owt16.txt 1
 run_case tokenizer_json - "$M/reference/qwen2.5-0.5b_tokenizer.json" - /tmp/arm_owt16.txt 1
+run_case tokenizer_json - "$M/reference/qwen2.5-0.5b_tokenizer.json" - /tmp/arm_owt16.txt 6
+run_case tokenizer_json - "$M/reference/qwen2.5-0.5b_tokenizer.json" - /tmp/arm_owt16.txt 16
 run_case tokenizer_json - "$M/reference/gemma4_tokenizer.json" - /tmp/arm_owt16.txt 1
 run_case sentencepiece - "$M/reference/mistral7b_tokenizer.model" - /tmp/arm_owt16.txt 1
+run_case tokenizer_json - "$M/reference/smollm2_tokenizer.json" - /tmp/arm_owt16.txt 1
+run_case tokenizer_json - "$M/reference/smollm2_tokenizer.json" - /tmp/arm_owt16.txt 6
 run_case tiktoken cl100k "$M/cl100k_base.tiktoken" - /tmp/arm_owt16.txt 16
 run_case tiktoken o200k "$M/o200k_base.tiktoken" - /tmp/arm_owt16.txt 16
 

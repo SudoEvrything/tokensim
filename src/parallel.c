@@ -714,6 +714,7 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
             if (sw_fill_enabled() &&
                 (w->t->scheme == TSIMD_PRETOK_CL100K ||
                  w->t->scheme == TSIMD_PRETOK_O200K ||
+                 w->t->scheme == TSIMD_PRETOK_QWEN25 ||
                  w->t->scheme == TSIMD_PRETOK_GPT2)) {
                 size_t end = i;
                 size_t fn = 0;
