@@ -7,5 +7,5 @@ Name: TokenSIMD
 Description: High-throughput BPE tokenizer (SIMD pretokenizer, parallel encode)
 Version: @TSIMD_VERSION@
 Cflags: -I${includedir}
-Libs: -L${libdir} -ltokensimd
+Libs: -L${libdir} -ltokensim
 Libs.private: -lpthread -lm

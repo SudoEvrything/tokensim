@@ -3,7 +3,12 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import tokensim
 import tsimd
+
+assert tsimd.version == tokensim.version == "1.0.1"
+assert tsimd.Error is tokensim.Error
+assert tsimd.Tokenizer is tokensim.Tokenizer
 
 ROOT = os.environ.get("TOKENSIMD_ROOT") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

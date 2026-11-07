@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::time::Instant;
 
-use tokensimd::{Format, Tokenizer};
+use tokensim::{Format, Tokenizer};
 
 fn main() {
     let a: Vec<String> = env::args().collect();

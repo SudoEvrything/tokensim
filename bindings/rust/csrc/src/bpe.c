@@ -2923,13 +2923,19 @@ int tsimd_pretok_cache_init(tsimd_pretok_cache_t *c, size_t capacity_entries) {
         if (map != MAP_FAILED) {
             c->entries = (tsimd_pcache_entry_t *)map;
             c->map_bytes = rounded;
+#if defined(MADV_HUGEPAGE)
             madvise(map, bytes, MADV_HUGEPAGE);
+#endif
         }
     }
     if (!c->entries) {
         c->entries = aligned_alloc(2u << 20, rounded ? rounded : 32);
         if (!c->entries) c->entries = calloc(cap, sizeof(tsimd_pcache_entry_t));
-        else madvise(c->entries, bytes, MADV_HUGEPAGE);
+        else {
+#if defined(MADV_HUGEPAGE)
+            madvise(c->entries, bytes, MADV_HUGEPAGE);
+#endif
+        }
         for (size_t i = 0; i < cap; i++) {
             c->entries[i].key0 = 0;
             c->entries[i].key1 = 0;
@@ -3068,7 +3074,9 @@ static void pcache_rehash(tsimd_pretok_cache_t *c, size_t newcap) {
         if (map != MAP_FAILED) {
             ne = map;
             nmap = rounded;
+#if defined(MADV_HUGEPAGE)
             madvise(map, bytes, MADV_HUGEPAGE);
+#endif
             memset(map, 0, bytes);
         }
     }

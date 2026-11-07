@@ -2,6 +2,7 @@
 #include <Python.h>
 
 #include "tokenizer.h"
+#include "tokensimd_version.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -272,17 +273,21 @@ static PyMethodDef mod_methods[] = {
 
 static struct PyModuleDef mod_def = {
     PyModuleDef_HEAD_INIT,
-    "tsimd",
-    "TokenSIMD tokenizer bindings",
+    "tokensim",
+    "tokensim tokenizer bindings",
     -1,
     mod_methods,
 };
 
-PyMODINIT_FUNC PyInit_tsimd(void) {
+PyMODINIT_FUNC PyInit_tokensim(void) {
     if (PyType_Ready(&TokType) < 0) return NULL;
     PyObject *m = PyModule_Create(&mod_def);
     if (!m) return NULL;
-    TokError = PyErr_NewException("tsimd.Error", NULL, NULL);
+    if (PyModule_AddStringConstant(m, "version", TSIMD_VERSION_STRING) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+    TokError = PyErr_NewException("tokensim.Error", NULL, NULL);
     Py_XINCREF(TokError);
     if (PyModule_AddObject(m, "Error", TokError) < 0) {
         Py_XDECREF(TokError);

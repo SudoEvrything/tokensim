@@ -160,7 +160,7 @@ exact-match detection.
 
 ## Waves 3-4, packaging, bindings, fuzzing, tracking (2026-09)
 
-- Install targets verified by a downstream `find_package(tokensimd)`
+- Install targets verified by a downstream `find_package(tokensim)`
   consumer; pkg-config and the `tsimd` Python module ship with the lib.
 - Python parity suite: 23/23 (id-exact vs tiktoken for all three
   schemes, parallel/batch equality, decode round-trips).

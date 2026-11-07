@@ -1,21 +1,21 @@
-# tokensimd
+# tokensim
 
 Rust bindings for the tokensim tokenizer engine: 14 model families,
 byte-exact against tiktoken, HuggingFace tokenizers, and
 sentencepiece. The C engine is vendored inside the crate and built
-with cc, so `cargo add tokensimd` works anywhere with no cmake, no
+with cc, so `cargo add tokensim` works anywhere with no cmake, no
 network access, and no system dependencies.
 
 ## Install
 
 ```sh
-cargo add tokensimd
+cargo add tokensim
 ```
 
 ## Encode and decode
 
 ```rust
-use tokensimd::{Format, Tokenizer};
+use tokensim::{Format, Tokenizer};
 
 fn main() -> Result<(), String> {
     let mut tok = Tokenizer::open(
@@ -31,7 +31,7 @@ fn main() -> Result<(), String> {
     let text = tok.decode(&ids)?;                  // round-trips exactly
     let text = tok.decode_opt(&ids, true)?;        // specials omitted
     let bound = tok.encode_bound(1024);            // the out-buffer bound
-    println!("tokensim {}", tokensimd::version());
+    println!("tokensim {}", tokensim::version());
     Ok(())
 }
 ```

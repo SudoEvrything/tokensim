@@ -118,7 +118,7 @@ int tsimd_simd_avx512_probe(void) {
         atomic_store_explicit(&g_probe, 0, memory_order_relaxed);
         return 0;
     }
-    __sighandler_t old = signal(SIGILL, probe_sigill_handler);
+    void (*old)(int) = signal(SIGILL, probe_sigill_handler);
     if (sigsetjmp(probe_jmp, 1) == 0) {
         int ok = tsimd_avx512_selftest();
         signal(SIGILL, old);

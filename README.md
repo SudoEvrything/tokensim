@@ -44,7 +44,7 @@ each one):
 
 ```sh
 uv pip install tokensim          # or: pip install tokensim (Python)
-cargo add tokensimd              # Rust
+cargo add tokensim              # Rust
 ```
 
 For C, use CMake FetchContent or pkg-config (the Bindings section
@@ -66,8 +66,8 @@ Then call it. From the command line:
 From Python:
 
 ```python
-import tsimd
-tok = tsimd.load("cl100k_base.tiktoken", "tiktoken", "cl100k")
+import tokensim
+tok = tokensim.load("cl100k_base.tiktoken", "tiktoken", "cl100k")
 ids = tok.encode(b"hello world, don't stop")     # GIL released
 tok.decode(ids)                                  # round-trips exactly
 ```
@@ -208,7 +208,8 @@ install tokensim`); the sdist carries the C sources and builds them
 on install:
 
 ```python
-tok = tsimd.load("/path/cl100k_base.tiktoken", "tiktoken", "cl100k")
+import tokensim
+tok = tokensim.load("/path/cl100k_base.tiktoken", "tiktoken", "cl100k")
 ids = tok.encode(b"hello world")                     # GIL released
 ids = tok.encode_threads(b"hello world", threads=8)  # == encode()
 data = tok.encode_bytes(b"hello world")              # uint32 LE bytes
@@ -218,13 +219,15 @@ n = tok.encode_bound(len(data))                      # out-buffer bound
 
 `encode` takes bytes and returns a list of ids; `encode_threads` is
 byte-identical to `encode` for any thread count; `decode` reverses
-the encode (`skip_special=True` drops the special ids).
+the encode (`skip_special=True` drops the special ids). The module
+imports as `tokensim`; the historic `import tsimd` keeps working as
+an alias of the same objects.
 
 **Rust** - install with `cargo add tokensim`; the crate vendors the
 C sources and builds them with cc (no cmake, no network):
 
 ```rust
-use tokensimd::{Format, Tokenizer};
+use tokensim::{Format, Tokenizer};
 
 let mut tok = Tokenizer::open(
     "cl100k_base.tiktoken",
@@ -249,13 +252,13 @@ FetchContent_Declare(
   GIT_TAG        v1.0.0
 )
 FetchContent_MakeAvailable(tokensim)
-target_link_libraries(myapp PRIVATE tokensimd)
+target_link_libraries(myapp PRIVATE tokensim)
 ```
 
 or pkg-config (after `cmake --install build --prefix ~/.local`):
 
 ```sh
-cc myapp.c $(pkg-config --cflags --libs tokensimd) -o myapp
+cc myapp.c $(pkg-config --cflags --libs tokensim) -o myapp
 ```
 
 The library is x86-64 (SSE2 baseline; AVX2/AVX-512 dispatched at
