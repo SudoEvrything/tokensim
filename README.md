@@ -43,8 +43,8 @@ From the published packages (the C engine builds from source inside
 each one):
 
 ```sh
-uv pip install tokensim          # or: pip install tokensim (Python)
-cargo add tokensim               # Rust
+uv pip install tokensimd         # or: pip install tokensimd (Python)
+cargo add tokensimd              # Rust
 ```
 
 For C, use CMake FetchContent or pkg-config (the Bindings section
@@ -52,7 +52,7 @@ below has both). From this repository, building from source is the
 same three lines:
 
 ```sh
-git clone https://github.com/OWNER/tokensim && cd tokensim
+git clone https://github.com/SudoEvrything/tokensim && cd tokensim
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ctest --test-dir build            # 41 tests without local artifacts
 ```
@@ -203,8 +203,8 @@ its reference.
 
 ## Bindings and packaging
 
-**Python** - install with `uv pip install tokensim` (or `pip
-install tokensim`); the sdist carries the C sources and builds them
+**Python** - install with `uv pip install tokensimd` (or `pip
+install tokensimd`); the sdist carries the C sources and builds them
 on install:
 
 ```python

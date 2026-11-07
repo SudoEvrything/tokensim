@@ -3,7 +3,7 @@ requires = ["scikit-build-core>=0.8"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "tsimd"
+name = "tokensimd"
 version = "1.0.0"
 description = "TokenSIMD: high-throughput BPE tokenizer (SIMD pretokenizer, parallel encode)"
 readme = "README.md"

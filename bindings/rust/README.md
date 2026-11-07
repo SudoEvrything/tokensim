@@ -3,13 +3,13 @@
 Rust bindings for the tokensim tokenizer engine: 14 model families,
 byte-exact against tiktoken, HuggingFace tokenizers, and
 sentencepiece. The C engine is vendored inside the crate and built
-with cc, so `cargo add tokensim` works anywhere with no cmake, no
+with cc, so `cargo add tokensimd` works anywhere with no cmake, no
 network access, and no system dependencies.
 
 ## Install
 
 ```sh
-cargo add tokensim
+cargo add tokensimd
 ```
 
 ## Encode and decode
