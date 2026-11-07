@@ -1483,6 +1483,7 @@ int tsimd_cpu_core_kind(int cpu) {
                 break;
         }
     }
+#if defined(__linux__)
     cpu_set_t save;
     if (sched_getaffinity(0, sizeof save, &save) == 0) {
         cpu_set_t set;
@@ -1502,6 +1503,7 @@ int tsimd_cpu_core_kind(int cpu) {
             sched_setaffinity(0, sizeof save, &save);
         }
     }
+#endif
     cached[cpu] = kind;
     atomic_store_explicit(&tried[cpu], 2, memory_order_release);
     return kind;
@@ -1782,6 +1784,7 @@ static void pin_order_build(void) {
     atomic_store_explicit(&pin_ready, 1, memory_order_release);
 }
 
+#if defined(__linux__)
 static cpu_set_t g_saved_mask;
 static atomic_int g_saved_mask_state;
 
@@ -1862,6 +1865,24 @@ static void caller_pin(void) {
     CPU_SET(pin_order[0], &set);
     pthread_setaffinity_np(pthread_self(), sizeof(set), &set);
 }
+#else
+static void mask_save_once(void) {
+}
+
+void tsimd_pin_thread_nth(int idx) {
+    (void)idx;
+}
+
+void tsimd_restore_process_affinity(void) {
+}
+
+static void worker_pin(int idx) {
+    (void)idx;
+}
+
+static void caller_pin(void) {
+}
+#endif
 
 static int worker_cache_build(worker_t *w, int bits);
 
