@@ -218,6 +218,8 @@ int main(void) {
         return 1;
     }
     size_t shrink = dlen / 4 ? dlen / 4 : dlen;
+    if (shrink > 4u << 20)
+        shrink = 4u << 20;
     size_t shrink2 = d2len > 65536 ? 65536 : d2len;
     for (size_t i = 0; i < sizeof(k_fams) / sizeof(k_fams[0]); i++)
         run_family(&k_fams[i], doc, shrink, doc2, shrink2);
