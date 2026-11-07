@@ -13,9 +13,10 @@ very first call pays one-time cache warm-up: 259 MB/s).
 
 > **Documentation:** [BENCHMARKS.md](BENCHMARKS.md) - the numbers ·
 > [TECHNICAL-REPORT.md](TECHNICAL-REPORT.md) - the deep-dive
-> engineering blog: the design decisions, the intuition, and the
-> correctness story. How to use it: the Quickstart below, and the
-> per-language snippets in Bindings and packaging.
+> engineering blog: the decisions, the intuition, and the
+> correctness story (also on [GitHub Pages](https://sudoeverything.github.io/tokensim/TECHNICAL-REPORT.html))
+> · How to use it: the Quickstart below, and the per-language
+> snippets in Bindings and packaging.
 
 ## Performance
 
