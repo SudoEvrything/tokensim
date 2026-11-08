@@ -2,7 +2,7 @@
 
 Everything here survives reboots; /tmp scratch binaries do not. Each
 `run_*.sh` rebuilds what it needs from the repo and the current
-`build/libtokensimd.a`, so `cmake --build build` first is the only
+`build/libtokensim.a`, so `cmake --build build` first is the only
 prerequisite.
 
 | script | what it does |
@@ -15,7 +15,7 @@ prerequisite.
 | `repro_artifact.sh` | replay one saved artifact against its family harness with debug output. |
 | `ladder_encode.c` | the ladder driver source (built by run_ladder.sh). |
 | `exhaustive_algebra.c` | the checker source. |
-| `diag_compare.c` | four-path comparator on one input: scalar law, masks spans, the keyed fill, the encode versus the law BPE. Build: `gcc -O1 -I include scripts/diag_compare.c build/libtokensimd.a -lm -lpthread` and run `MODEL INPUT`. |
+| `diag_compare.c` | four-path comparator on one input: scalar law, masks spans, the keyed fill, the encode versus the law BPE. Build: `gcc -O1 -I include scripts/diag_compare.c build/libtokensim.a -lm -lpthread` and run `MODEL INPUT`. |
 | `microbench_windows.c` | the window microbench source. |
 
 The debug workflow for a pretokenizer divergence: `repro_artifact.sh`

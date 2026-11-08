@@ -23,7 +23,7 @@ else
 fi
 echo "== exhaustive algebra, forced avx512 (expect 0 mismatches)"
 gcc -O2 -mavx2 -I include scripts/exhaustive_algebra.c \
-    build/libtokensimd.a -lm -lpthread -o /tmp/tsimd-exh
+    build/libtokensim.a -lm -lpthread -o /tmp/tsimd-exh
 timeout 570 "$SDE" -cpuid_in "$CPUID" -- \
     env TSIMD_SIMD_FORCE=avx512 /tmp/tsimd-exh | tail -1
 if [ -f testdata/owt.txt ] || [ -f testdata/owt16m.txt ]; then

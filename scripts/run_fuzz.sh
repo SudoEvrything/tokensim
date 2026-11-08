@@ -6,9 +6,9 @@ cd "$(dirname "$0")/.." || exit 1
 SEC="${1:-90}"
 PB="${PAR_BUDGET:-20}"
 clang -fsanitize=fuzzer -O2 -g -I include tests/fuzz_all_models.c \
-    build/libtokensimd.a -lm -lpthread -o /tmp/tsimd-fuzz
+    build/libtokensim.a -lm -lpthread -o /tmp/tsimd-fuzz
 clang -fsanitize=fuzzer -O2 -g -I include tests/fuzz_par_parity.c \
-    build/libtokensimd.a -lm -lpthread -o /tmp/tsimd-fuzz-par
+    build/libtokensim.a -lm -lpthread -o /tmp/tsimd-fuzz-par
 run() {
   local spec="$1" name="$2"
   echo "== $name (${SEC}s)"

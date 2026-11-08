@@ -20,6 +20,6 @@ case "$1" in
   *) echo "unknown family: $1"; exit 1 ;;
 esac
 clang -fsanitize=fuzzer -O2 -g -I include tests/fuzz_all_models.c \
-    build/libtokensimd.a -lm -lpthread -o /tmp/tsimd-fuzz
+    build/libtokensim.a -lm -lpthread -o /tmp/tsimd-fuzz
 TSIMD_FUZZ_SPEC="$m;$k" TSIMD_FUZZ_DBG=1 /tmp/tsimd-fuzz "$2" 2>&1 |
     grep -E "MISMATCH|mine:|ref :|executed" | head -6

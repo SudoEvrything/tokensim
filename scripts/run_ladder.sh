@@ -2,7 +2,7 @@
 
 set -e
 cd "$(dirname "$0")/.." || exit 1
-gcc -O2 -mavx2 -I include scripts/ladder_encode.c build/libtokensimd.a \
+gcc -O2 -mavx2 -I include scripts/ladder_encode.c build/libtokensim.a \
     -lm -lpthread -o /tmp/tsimd-ladder
 CORPUS=${LADDER_CORPUS:-testdata/owt.txt}
 fams="o200k cl100k deepseek qwen2.5 nemotron glm4 gemma4 gemma3-4b smollm2 mistral xlmr t5 kimi"
