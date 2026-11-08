@@ -117,8 +117,7 @@ int tsimd_pretokenize_simd_ex(tsimd_pretok_scheme_t scheme,
 int tsimd_pretok_serve_fill(tsimd_pretok_scheme_t scheme,
                             const uint8_t *data, size_t len,
                             size_t start,
-                            void *ents, size_t cap,
-                            size_t *n_out, size_t *end_out);
+                            tsimd_span_array_t *out);
 
 void tsimd_debug_o200k_mask(const uint8_t *data, size_t base,
                             uint64_t *cc_out, uint64_t *supp_out,

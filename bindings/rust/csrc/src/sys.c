@@ -125,11 +125,17 @@ int tsimd_sys_encode_into(tsimd_sys *h, const uint8_t *data, size_t len,
                           int threads, uint32_t *out, size_t cap,
                           size_t *n_out) {
     if (!h || !out) return -1;
-    if (threads > 1 &&
-        cap >= tsimd_tokenizer_encode_bound(&h->tok, len)) {
+    if (cap >= tsimd_tokenizer_encode_bound(&h->tok, len)) {
         size_t n = 0;
-        if (tsimd_tokenizer_encode_parallel_into(&h->tok, data, len, threads,
-                                                 out, cap, &n) == 0) {
+        if (threads > 1) {
+            if (tsimd_tokenizer_encode_parallel_into(&h->tok, data, len,
+                                                     threads, out, cap,
+                                                     &n) == 0) {
+                if (n_out) *n_out = n;
+                return 0;
+            }
+        } else if (tsimd_tokenizer_encode_into_raw(&h->tok, data, len, out, cap,
+                                                   &n) == 0) {
             if (n_out) *n_out = n;
             return 0;
         }

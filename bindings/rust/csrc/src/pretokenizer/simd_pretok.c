@@ -15,6 +15,7 @@ typedef struct {
     size_t len;
     int is_cl100k;
     int is_o200k;
+    int is_qwen;
     int ci;
     tsimd_classify_fn_t classify;
     tsimd_span_array_t *out;
@@ -253,6 +254,43 @@ static uint64_t gpt2_mask(const sw_t *st, const tsimd_cls_block_t *b,
     return m;
 }
 
+static int qwen_bnd(const sw_t *st, long i) {
+    uint8_t c1 = sw_cls(st, i - 1), c0 = sw_cls(st, i);
+    if (c0 == CLS_D) return 1;
+    int ws1 = (c1 >= CLS_SP && c1 <= CLS_C);
+    int ws0 = (c0 >= CLS_SP && c0 <= CLS_C);
+
+    int cc = (c0 != c1);
+    int supp = 0;
+    supp |= ws0 && ws1;
+    supp |= (c1 == CLS_SP) && (c0 == CLS_L || c0 == CLS_O);
+    supp |= (c1 == CLS_W) && (c0 == CLS_L);
+    supp |= (c0 == CLS_C) && (c1 == CLS_O);
+    supp |= (c1 == CLS_O) && (c0 == CLS_L) &&
+            !((sw_cls(st, i - 2) == CLS_O) ||
+              (sw_cls(st, i - 2) == CLS_SP));
+    int suppC = (sw_byte(st, i - 1) == '\'') &&
+                in_ldwc(sw_cls(st, i - 2)) &&
+                (suf1(sw_byte(st, i), 1) ||
+                 ((long)st->base + i + 1 < (long)st->len &&
+                  pair23(sw_byte(st, i), sw_byte(st, i + 1), 1)));
+    int forceC =
+        ((sw_byte(st, i - 2) == '\'') && suf1(sw_byte(st, i - 1), 1) &&
+         in_ldwc(sw_cls(st, i - 3))) ||
+        ((sw_byte(st, i - 3) == '\'') &&
+         pair23(sw_byte(st, i - 2), sw_byte(st, i - 1), 1) &&
+         in_ldwc(sw_cls(st, i - 4)));
+    int forceA = 0;
+    if (ws0 && c1 == CLS_C) {
+
+        long k = i - 1;
+        while (k >= -4 && sw_cls(st, k) == CLS_C) k--;
+        if (k >= -4 ? sw_cls(st, k) == CLS_O : st->op_carry)
+            forceA = (c0 == CLS_SP || c0 == CLS_W);
+    }
+    return (cc && !supp && !suppC) || forceC || forceA;
+}
+
 static uint64_t cl100k_mask(const sw_t *st, const tsimd_cls_block_t *b) {
     uint64_t WS = b->sp | b->w | b->c;
     uint64_t SPW = b->sp | b->w;
@@ -321,6 +359,63 @@ static uint64_t cl100k_mask(const sw_t *st, const tsimd_cls_block_t *b) {
     for (long i = 1; i <= 4; i++)
         m = (m & ~(1ULL << i)) | ((uint64_t)cl100k_bnd(st, i) << i);
     m = (m & ~(1ULL << 63)) | ((uint64_t)cl100k_bnd(st, 63) << 63);
+    return m;
+}
+
+static uint64_t qwen25_mask(const sw_t *st, const tsimd_cls_block_t *b) {
+    uint64_t WS = b->sp | b->w | b->c;
+    uint64_t SPW = b->sp | b->w;
+    uint64_t LDWC = b->l | b->d | b->w | b->c;
+
+    uint8_t p1 = st->hc[0], p2 = st->hc[1];
+    uint64_t eq = (b->l & ((b->l << 1) | (uint64_t)(p1 == CLS_L))) |
+                  (b->sp & ((b->sp << 1) | (uint64_t)(p1 == CLS_SP))) |
+                  (b->w & ((b->w << 1) | (uint64_t)(p1 == CLS_W))) |
+                  (b->c & ((b->c << 1) | (uint64_t)(p1 == CLS_C))) |
+                  (b->o & ((b->o << 1) | (uint64_t)(p1 == CLS_O)));
+    uint64_t cc = ~eq;
+
+    uint64_t wscont = WS & ((WS << 1) | (uint64_t)(p1 >= CLS_SP && p1 <= CLS_C));
+    if (st->op_carry) wscont &= ~(SPW & (b->c << 1));
+    uint64_t supp = wscont;
+    supp |= ((b->sp << 1) | (uint64_t)(p1 == CLS_SP)) & (b->l | b->o);
+    supp |= ((b->w << 1) | (uint64_t)(p1 == CLS_W)) & b->l;
+    supp |= b->c & ((b->o << 1) | (uint64_t)(p1 == CLS_O));
+    supp |= b->l & ((b->o << 1) | (uint64_t)(p1 == CLS_O)) &
+            ~((b->o << 2) | (uint64_t)(p2 == CLS_O)) &
+            ~((b->sp << 2) | (uint64_t)(p2 == CLS_SP));
+    uint64_t P = (b->r & (b->e >> 1)) | (b->v & (b->e >> 1)) |
+                 (b->l1 & (b->l1 >> 1));
+    uint64_t suppC = ((b->ap << 1) | (uint64_t)(st->hb[0] == '\'')) &
+                     ((LDWC << 2) | (uint64_t)in_ldwc(st->hc[1])) &
+                     (b->suf | P);
+    uint64_t forceC = (((b->ap << 2) | (uint64_t)(st->hb[1] == '\'')) &
+                       ((b->suf << 1) | (uint64_t)suf1(st->hb[0], 1)) &
+                       ((LDWC << 3) | (uint64_t)in_ldwc(st->hc[2]))) |
+                      (((b->ap << 3) | (uint64_t)(st->hb[2] == '\'')) &
+                       ((P << 2) | (uint64_t)pair23(st->hb[1], st->hb[0], 1)) &
+                       ((LDWC << 4) | (uint64_t)in_ldwc(st->hc[3])));
+
+    uint64_t forceD = 0;
+    {
+        uint64_t carry_mask = b->c | (uint64_t)(st->op_carry != 0);
+        uint64_t cstarts = b->c & ~(b->c << 1) &
+                           ((b->o << 1) | (uint64_t)(p1 == CLS_O));
+        uint64_t p = (cstarts | (uint64_t)(st->op_carry != 0)) & carry_mask;
+
+        for (int k = 0; k < 6; k++) {
+            p |= p << (1 << k);
+            p &= carry_mask;
+        }
+        uint64_t force_abs = SPW & (p << 1);
+        if (st->op_carry) force_abs |= SPW & 1u;
+        forceD |= force_abs;
+    }
+
+    uint64_t m = (cc & ~supp & ~suppC) | forceC | forceD;
+    for (long i = 1; i <= 4; i++)
+        m = (m & ~(1ULL << i)) | ((uint64_t)qwen_bnd(st, i) << i);
+    m = (m & ~(1ULL << 63)) | ((uint64_t)qwen_bnd(st, 63) << 63);
     return m;
 }
 
@@ -529,7 +624,8 @@ static int scalar_fallback(sw_t *st) {
         if (st->err) return 1;
         size_t e = st->is_cl100k ? tsimd_match_cl100k(st->data, st->len, i)
                    : st->is_o200k ? tsimd_match_o200k(st->data, st->len, i)
-                                  : tsimd_match_gpt2(st->data, st->len, i);
+                   : st->is_qwen ? tsimd_match_qwen25(st->data, st->len, i)
+                                 : tsimd_match_gpt2(st->data, st->len, i);
         (void)push_span(st, i, e);
         i = e;
         if (e + TSIMD_BLOCK <= st->len) {
@@ -692,7 +788,7 @@ static int pretok_walk(sw_t *st) {
             continue;
         }
 
-        if ((st->is_cl100k || st->is_o200k) && st->span_start == st->base) {
+        if ((st->is_cl100k || st->is_o200k || st->is_qwen) && st->span_start == st->base) {
             size_t np0 = patch_chain(st, &blk_local, st->base, st->base);
             if (np0 == (size_t)-1) {
                 int sf = scalar_fallback(st);
@@ -728,7 +824,8 @@ static int pretok_walk(sw_t *st) {
 
         uint64_t m = st->is_cl100k ? cl100k_mask(st, &blk_local)
                      : st->is_o200k ? o200k_mask(st, &blk_local)
-                                    : gpt2_mask(st, &blk_local, next_is_s);
+                     : st->is_qwen ? qwen25_mask(st, &blk_local)
+                                   : gpt2_mask(st, &blk_local, next_is_s);
         {
             static const char *dbg = NULL;
             static int dbg_on = -1;
@@ -757,7 +854,7 @@ static int pretok_walk(sw_t *st) {
             if (p == st->span_start) continue;
             push_span(st, st->span_start, p);
             st->span_start = p;
-            if (st->is_cl100k || st->is_o200k) {
+            if (st->is_cl100k || st->is_o200k || st->is_qwen) {
                 size_t np = patch_chain(st, &blk_local, st->base, p);
                 if (np == (size_t)-1) {
                     int sf = scalar_fallback(st);
@@ -797,7 +894,8 @@ int tsimd_pretokenize_simd_ex(tsimd_pretok_scheme_t scheme,
     st.len = len;
     st.is_cl100k = (scheme == TSIMD_PRETOK_CL100K);
     st.is_o200k = (scheme == TSIMD_PRETOK_O200K);
-    st.ci = st.is_cl100k || st.is_o200k;
+    st.is_qwen = (scheme == TSIMD_PRETOK_QWEN25);
+    st.ci = st.is_cl100k || st.is_o200k || st.is_qwen;
     st.classify = tsimd_simd_classify();
     st.out = out;
     st.fn = fn;
@@ -807,48 +905,21 @@ int tsimd_pretokenize_simd_ex(tsimd_pretok_scheme_t scheme,
 }
 
 typedef struct {
-    tsimd_pcache_span_t *ents;
-    size_t cap;
-    size_t n;
-    size_t last_end;
-    const uint8_t *data;
-    size_t len;
-    int stop;
+    tsimd_span_array_t *out;
 } serve_fill_ctx_t;
 
 static int serve_fill_fn(void *ud, size_t s, size_t e) {
     serve_fill_ctx_t *c = ud;
-    if (c->n >= c->cap) {
-        c->stop = 1;
-        return 2;
-    }
-    tsimd_pcache_span_t *en = &c->ents[c->n];
-    en->ptr = c->data + s;
-    uint32_t el = (uint32_t)(e - s);
-    if (el <= TSIMD_PCACHE_MAX_SPAN)
-        tsimd_pcache_key_inline(en->ptr, el, c->data + c->len,
-                                &en->k0, &en->k1, &en->meta);
-    else {
-        en->k0 = 0;
-        en->k1 = 1;
-        en->meta = el;
-    }
-    c->last_end = e;
-    c->n++;
-    return 0;
+    return tsimd_span_array_push(c->out, (uint32_t)s, (uint32_t)e);
 }
 
 int tsimd_pretok_serve_fill(tsimd_pretok_scheme_t scheme,
                             const uint8_t *data, size_t len,
                             size_t start,
-                            void *ents_v, size_t cap,
-                            size_t *n_out, size_t *end_out) {
+                            tsimd_span_array_t *out) {
     serve_fill_ctx_t c;
     memset(&c, 0, sizeof(c));
-    c.ents = (tsimd_pcache_span_t *)ents_v;
-    c.cap = cap;
-    c.data = data;
-    c.len = len;
+    c.out = out;
 
     sw_t st;
     memset(&st, 0, sizeof(st));
@@ -856,20 +927,16 @@ int tsimd_pretok_serve_fill(tsimd_pretok_scheme_t scheme,
     st.len = len;
     st.is_cl100k = (scheme == TSIMD_PRETOK_CL100K);
     st.is_o200k = (scheme == TSIMD_PRETOK_O200K);
-    st.ci = st.is_cl100k || st.is_o200k;
+    st.is_qwen = (scheme == TSIMD_PRETOK_QWEN25);
+    st.ci = st.is_cl100k || st.is_o200k || st.is_qwen;
     st.classify = tsimd_simd_classify();
     st.fn = serve_fill_fn;
     st.ud = &c;
     seek(&st, start);
 
-    int rc = pretok_walk(&st);
-    *n_out = c.n;
-    if (c.stop) {
-        *end_out = c.last_end;
-        return 0;
-    }
-    *end_out = len;
-    return rc;
+    if (getenv("TSIMD_SERVE_SPAN_DUMP"))
+        fprintf(stderr, "FILL start=%zu\n", start);
+    return pretok_walk(&st);
 }
 
 int tsimd_pretokenize_simd(tsimd_pretok_scheme_t scheme,

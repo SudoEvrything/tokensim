@@ -17,7 +17,7 @@ cmake --build build --target bench_encode -j 6 >/dev/null
 cargo build --release --manifest-path bindings/rust/Cargo.toml >/dev/null \
     2>&1 || cargo build --release --manifest-path bindings/rust/Cargo.toml
 cmake --build build --target tsimd_python -j 6 >/dev/null
-cp build/tsimd.cpython-*.so bindings/python/ 2>/dev/null
+cp build/tokensim.cpython-*.so bindings/python/ 2>/dev/null
 
 run_c() {
   local model="$1" fmt="$2" scheme="$3" corpus="$4"

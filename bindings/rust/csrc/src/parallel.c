@@ -295,7 +295,7 @@ static int fused_o200k_flush(worker_t *w, const uint8_t *data,
 
 static int sw_fill_enabled(void) {
 #if defined(__x86_64__) || defined(__i386__)
-    return 0;
+    return getenv("TSIMD_SERVE_SW_X86") != NULL;
 #else
     static atomic_int state = 0;
     int v = atomic_load(&state);
@@ -654,6 +654,25 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
             return -1;
     const int ph = phase_stats_on();
 
+    static __thread tsimd_span_array_t seg;
+    static __thread int seg_init = 0;
+    if (!seg_init) {
+        tsimd_span_array_init(&seg);
+        seg_init = 1;
+    }
+    int seg_valid = 0;
+    size_t seg_ai = 0;
+    if (sw_fill_enabled() &&
+        (w->t->scheme == TSIMD_PRETOK_CL100K ||
+         w->t->scheme == TSIMD_PRETOK_O200K ||
+         w->t->scheme == TSIMD_PRETOK_QWEN25 ||
+         w->t->scheme == TSIMD_PRETOK_GPT2)) {
+        seg.count = 0;
+        if (tsimd_pretok_serve_fill(w->t->scheme, data, len, 0, &seg) == 0 &&
+            seg.count > 0)
+            seg_valid = 1;
+    }
+
     size_t x86_pieces = 0;
     while (rc == 0) {
 
@@ -711,19 +730,24 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
 #endif
 
             int sw_filled = 0;
-            if (sw_fill_enabled() &&
-                (w->t->scheme == TSIMD_PRETOK_CL100K ||
-                 w->t->scheme == TSIMD_PRETOK_O200K ||
-                 w->t->scheme == TSIMD_PRETOK_GPT2)) {
-                size_t end = i;
-                size_t fn = 0;
-                if (tsimd_pretok_serve_fill(w->t->scheme, data, len, i,
-                                            batch, cap, &fn, &end) == 0 &&
-                    fn > 0) {
-                    n = fn;
-                    i = end;
-                    sw_filled = 1;
+            if (seg_valid) {
+                while (seg_ai < seg.count && n < cap) {
+                    tsimd_pcache_span_t *en = &batch[n];
+                    en->ptr = data + seg.spans[seg_ai].start;
+                    uint32_t el = (uint32_t)(seg.spans[seg_ai].end -
+                                             seg.spans[seg_ai].start);
+                    if (el <= TSIMD_PCACHE_MAX_SPAN)
+                        tsimd_pcache_key_inline(en->ptr, el, data + len,
+                                                &en->k0, &en->k1, &en->meta);
+                    else {
+                        en->k0 = 0;
+                        en->k1 = 1;
+                        en->meta = el;
+                    }
+                    n++;
+                    seg_ai++;
                 }
+                sw_filled = 1;
             }
             if (!sw_filled && !dual_cur_disabled() && i + 128 < len) {
                 size_t s = serve_find_split(data, len,

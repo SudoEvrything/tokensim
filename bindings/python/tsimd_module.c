@@ -57,6 +57,37 @@ static PyObject *tok_encode(TokObject *self, PyObject *args) {
         PyErr_SetString(TokError, "encode failed");
         return NULL;
     }
+    PyObject *out = PyBytes_FromStringAndSize((const char *)seq.ids,
+                                              (Py_ssize_t)seq.count * 4);
+    tsimd_token_sequence_free(&seq);
+    return out;
+}
+
+static PyObject *tok_call(TokObject *self, PyObject *args, PyObject *kwargs) {
+    if (kwargs && PyDict_Size(kwargs) > 0) {
+        PyErr_SetString(PyExc_TypeError,
+                        "tok(data) takes no keyword arguments");
+        return NULL;
+    }
+    return tok_encode(self, args);
+}
+
+static PyObject *tok_encode_list(TokObject *self, PyObject *args) {
+    Py_buffer view;
+    if (!PyArg_ParseTuple(args, "y*", &view)) return NULL;
+    tsimd_token_sequence_t seq;
+    memset(&seq, 0, sizeof seq);
+    int rc;
+    Py_BEGIN_ALLOW_THREADS
+    rc = tsimd_tokenizer_encode(self->tok,
+                                (const uint8_t *)view.buf,
+                                (size_t)view.len, &seq);
+    Py_END_ALLOW_THREADS
+    PyBuffer_Release(&view);
+    if (rc != 0) {
+        PyErr_SetString(TokError, "encode failed");
+        return NULL;
+    }
     PyObject *list = PyList_New((Py_ssize_t)seq.count);
     if (!list) {
         tsimd_token_sequence_free(&seq);
@@ -168,20 +199,43 @@ static PyObject *tok_encode_threads_into(TokObject *self, PyObject *args) {
 }
 
 static PyObject *tok_decode(TokObject *self, PyObject *args) {
-    PyObject *list;
+    PyObject *obj;
     int skip_special = 0;
-    if (!PyArg_ParseTuple(args, "O!|p", &PyList_Type, &list, &skip_special))
-        return NULL;
-    Py_ssize_t n = PyList_Size(list);
-    uint32_t *ids = malloc((size_t)(n > 0 ? n : 1) * sizeof(uint32_t));
-    if (!ids) return PyErr_NoMemory();
-    for (Py_ssize_t i = 0; i < n; i++) {
-        unsigned long v = PyLong_AsUnsignedLong(PyList_GetItem(list, i));
-        if (v == (unsigned long)-1 && PyErr_Occurred()) {
-            free(ids);
+    if (!PyArg_ParseTuple(args, "O|p", &obj, &skip_special)) return NULL;
+    uint32_t *ids = NULL;
+    Py_ssize_t n = 0;
+    Py_buffer view;
+    if (PyList_Check(obj)) {
+        n = PyList_Size(obj);
+        ids = malloc((size_t)(n > 0 ? n : 1) * sizeof(uint32_t));
+        if (!ids) return PyErr_NoMemory();
+        for (Py_ssize_t i = 0; i < n; i++) {
+            unsigned long v = PyLong_AsUnsignedLong(PyList_GetItem(obj, i));
+            if (v == (unsigned long)-1 && PyErr_Occurred()) {
+                free(ids);
+                return NULL;
+            }
+            ids[i] = (uint32_t)v;
+        }
+    } else if (PyObject_GetBuffer(obj, &view, PyBUF_CONTIG_RO) == 0) {
+        if (view.len % 4 != 0) {
+            PyBuffer_Release(&view);
+            PyErr_SetString(TokError,
+                            "decode buffer length must be a multiple of 4");
             return NULL;
         }
-        ids[i] = (uint32_t)v;
+        n = view.len / 4;
+        ids = malloc((size_t)(n > 0 ? n : 1) * sizeof(uint32_t));
+        if (!ids) {
+            PyBuffer_Release(&view);
+            return PyErr_NoMemory();
+        }
+        memcpy(ids, view.buf, (size_t)n * 4);
+        PyBuffer_Release(&view);
+    } else {
+        PyErr_SetString(PyExc_TypeError,
+                        "decode expects a list of ids or a bytes-like buffer");
+        return NULL;
     }
     tsimd_byte_sequence_t out;
     memset(&out, 0, sizeof out);
@@ -203,7 +257,9 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
 
 static PyMethodDef Tok_methods[] = {
     {"encode", (PyCFunction)tok_encode, METH_VARARGS,
-     "encode(bytes) -> [ids]"},
+     "encode(bytes) -> bytes of uint32 LE ids (the fast path)"},
+    {"encode_list", (PyCFunction)tok_encode_list, METH_VARARGS,
+     "encode_list(bytes) -> [ids]"},
     {"encode_bytes", (PyCFunction)tok_encode_bytes, METH_VARARGS,
      "encode_bytes(bytes) -> bytes of uint32 LE ids"},
     {"encode_threads", (PyCFunction)tok_encode_threads, METH_VARARGS,
@@ -213,7 +269,7 @@ static PyMethodDef Tok_methods[] = {
     {"encode_bound", (PyCFunction)tok_encode_bound, METH_VARARGS,
      "encode_bound(len) -> required out-buffer bytes"},
     {"decode", (PyCFunction)tok_decode, METH_VARARGS,
-     "decode([ids], skip_special=False) -> bytes"},
+     "decode(list_or_bytes_of_ids, skip_special=False) -> bytes"},
     {NULL, NULL, 0, NULL},
 };
 
@@ -223,6 +279,7 @@ static PyTypeObject TokType = {
     .tp_basicsize = sizeof(TokObject),
     .tp_dealloc = (destructor)Tok_dealloc,
     .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_call = (ternaryfunc)tok_call,
     .tp_methods = Tok_methods,
 };
 
@@ -268,6 +325,7 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
 
 static PyMethodDef mod_methods[] = {
     {"load", mod_load, METH_VARARGS, "load(path, format=None, scheme=None) -> Tokenizer"},
+    {"tokenizer", mod_load, METH_VARARGS, "tokenizer(path, format=None, scheme=None) -> Tokenizer"},
     {NULL, NULL, 0, NULL},
 };
 

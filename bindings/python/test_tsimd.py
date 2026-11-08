@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tokensim
 import tsimd
 
-assert tsimd.version == tokensim.version == "1.0.1"
+assert tsimd.version == tokensim.version == "1.0.3"
 assert tsimd.Error is tokensim.Error
 assert tsimd.Tokenizer is tokensim.Tokenizer
 
@@ -28,9 +28,51 @@ def hf_ids(model_path, text):
     t = Tokenizer.from_file(model_path)
     return t.encode(text, add_special_tokens=False).ids
 
+def ids_of(tok, data):
+    import array
+    a = array.array("I")
+    a.frombytes(tok.encode(data))
+    return list(a)
+
+def fast_path_check(tok, data):
+    import array
+    raw = tok.encode(data)
+    if not isinstance(raw, bytes):
+        print("encode did not return bytes")
+        return False
+    lst = tok.encode_list(data)
+    a = array.array("I")
+    a.frombytes(raw)
+    if list(a) != lst:
+        print("encode bytes differ from encode_list")
+        return False
+    call = tok(data)
+    if call != raw:
+        print("__call__ differs from encode")
+        return False
+    if tok.encode_bytes(data) != raw:
+        print("encode differs from encode_bytes")
+        return False
+    if tok.encode_threads(data, 1) != raw:
+        print("encode_threads(1) differs from encode")
+        return False
+    if tok.decode(raw) != data:
+        print("decode(bytes) round-trip differs")
+        return False
+    if tok.decode(lst) != data:
+        print("decode(list) round-trip differs")
+        return False
+    try:
+        tok.decode(raw[:-2])
+        print("decode accepted a ragged buffer")
+        return False
+    except tokensim.Error:
+        pass
+    return True
+
 def encode_bytes_check(tok, data):
     import array
-    lst = tok.encode(data)
+    lst = tok.encode_list(data)
     a = array.array("I")
     a.frombytes(tok.encode_bytes(data))
     p = array.array("I")
@@ -40,7 +82,7 @@ def encode_bytes_check(tok, data):
 
 def encode_into_check(tok, data):
     import array
-    lst = tok.encode(data)
+    lst = tok.encode_list(data)
     bound = tok.encode_bound(len(data))
     if bound < 4 * len(lst):
         print(f"encode_bound suspicious: {bound} for {len(lst)} ids")
@@ -86,18 +128,25 @@ def main():
         ("gemma4", ROOT + "/models/reference/gemma4_tokenizer.json"),
         ("qwen2.5", ROOT + "/models/reference/qwen2.5-0.5b_tokenizer.json"),
     ]
+    if not hasattr(tokensim, "tokenizer"):
+        print("tokensim.tokenizer alias missing")
+        fails += 1
     for name, path in cases:
         if not os.path.exists(path):
             print(f"  SKIP {name}: no model at {path} "
                   "(set TOKENSIMD_ROOT to the repo checkout)")
             continue
         tok = tsimd.load(path)
+        tok2 = tokensim.tokenizer(path)
+        if type(tok2) is not type(tok):
+            print("tokensim.tokenizer did not return a Tokenizer")
+            fails += 1
         try:
             ref = hf_ids(path, TEXTS[0])
         except ImportError:
             print("  SKIP hf reference: tokenizers not installed")
             continue
-        mine = tok.encode(TEXTS[0].encode("utf-8"))
+        mine = ids_of(tok, TEXTS[0].encode("utf-8"))
         ok = mine == ref
         print(f"{name} 'Hello, world!': {'OK' if ok else 'MISMATCH'}")
         if not ok:
@@ -105,13 +154,13 @@ def main():
             print("  ref :", ref)
             fails += 1
         for text in TEXTS[1:]:
-            mine = tok.encode(text.encode("utf-8"))
+            mine = ids_of(tok, text.encode("utf-8"))
             back = tok.decode(mine).decode("utf-8")
             if back != text:
                 print(f"{name} round-trip FAIL: {text[:40]!r}")
                 fails += 1
         big = (TEXTS[0] + " ") * 1000
-        mine = tok.encode(big.encode("utf-8"))
+        mine = ids_of(tok, big.encode("utf-8"))
         if len(mine) < 1000:
             print(f"{name} big-encode suspicious: {len(mine)} ids")
             fails += 1
@@ -124,6 +173,11 @@ def main():
         print("test_tsimd: OK (portable checks only)")
         return 0
     tok_b = tsimd.load(ROOT + "/models/reference/deepseek_tokenizer.json")
+    if fast_path_check(tok_b, TEXTS[0].encode("utf-8") * 40):
+        print("fast-path default OK")
+    else:
+        fails += 1
+        print("fast-path default FAIL")
     if encode_bytes_check(tok_b, TEXTS[0].encode("utf-8") * 40):
         print("encode_bytes/threads parity OK")
     else:

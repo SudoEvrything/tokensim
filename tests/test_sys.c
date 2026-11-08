@@ -44,14 +44,14 @@ int main(void) {
               memcmp(bytes, text, n_bytes) == 0,
           "decode round trip");
     tsimd_sys_free(bytes);
-    tsimd_sys_free(ids);
 
     uint32_t *ids4 = NULL;
     size_t n4 = 0;
     check(tsimd_sys_encode(h, (const uint8_t *)text, strlen(text), 4, &ids4,
                            &n4) == 0,
           "encode parallel");
-    check(n4 == n_ids && memcmp(ids4, ids, 0) == 0, "parallel id count");
+    check(n4 == n_ids && memcmp(ids4, ids, n_ids * sizeof(uint32_t)) == 0,
+          "parallel ids equal the sequential ids");
     tsimd_sys_free(ids4);
 
     size_t bound = 0;
@@ -60,13 +60,40 @@ int main(void) {
           "encode bound");
     uint32_t *into = malloc((bound ? bound : 1) * sizeof(uint32_t));
     size_t n_into = 0;
+    memset(into, 0, (bound ? bound : 1) * sizeof(uint32_t));
     check(tsimd_sys_encode_into(h, (const uint8_t *)text, strlen(text), 1,
                                 into, bound, &n_into) == 0 && n_into == n_ids,
           "encode into");
+    check(memcmp(into, ids, n_ids * sizeof(uint32_t)) == 0,
+          "encode into ids equal the sequential ids");
+    memset(into, 0, (bound ? bound : 1) * sizeof(uint32_t));
+    check(tsimd_sys_encode_into(h, (const uint8_t *)text, strlen(text), 4,
+                                into, bound, &n_into) == 0 && n_into == n_ids,
+          "encode into parallel");
+    check(memcmp(into, ids, n_ids * sizeof(uint32_t)) == 0,
+          "encode into parallel ids equal the sequential ids");
+    uint32_t *tight = malloc(n_ids * sizeof(uint32_t));
+    memset(tight, 0, n_ids * sizeof(uint32_t));
+    check(tsimd_sys_encode_into(h, (const uint8_t *)text, strlen(text), 1,
+                                tight, n_ids, &n_into) == 0 && n_into == n_ids,
+          "encode into with a tight buffer");
+    check(memcmp(tight, ids, n_ids * sizeof(uint32_t)) == 0,
+          "tight-buffer ids equal the sequential ids");
+    memset(tight, 0, n_ids * sizeof(uint32_t));
+    check(tsimd_sys_encode_into(h, (const uint8_t *)text, strlen(text), 4,
+                                tight, n_ids, &n_into) == 0 && n_into == n_ids,
+          "encode into parallel with a tight buffer");
+    check(memcmp(tight, ids, n_ids * sizeof(uint32_t)) == 0,
+          "tight-buffer parallel ids equal the sequential ids");
+    free(tight);
     check(tsimd_sys_encode_into(h, (const uint8_t *)text, strlen(text), 1,
                                 into, 1, &n_into) != 0,
           "encode into must fail on a short buffer");
+    check(tsimd_sys_encode_into(h, (const uint8_t *)text, strlen(text), 4,
+                                into, 1, &n_into) != 0,
+          "encode into parallel must fail on a short buffer");
     free(into);
+    tsimd_sys_free(ids);
     tsimd_sys_close(h);
 
     h = tsimd_sys_open(T5, "sentencepiece", "auto", err, sizeof err);

@@ -1,1 +1,1 @@
-from tokensim import Error, Tokenizer, load, version
+from tokensim import Error, Tokenizer, load, tokenizer, version
