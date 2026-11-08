@@ -58,11 +58,21 @@ jobs:
           PYEOF
           printf 'The quick brown fox jumps over the lazy dog. In 2024, prices rose 3.5%% -- do not panic; email user@example.com or visit https://example.com/path?q=1.\nShe said, "I will arrive at 7:45 p.m. with 42 boxes, 3 cats, and one very large umbrella."\n\n' > /tmp/bench.txt
           for i in $(seq 1 131000); do cat /tmp/bench.txt; done > /tmp/bench16.txt
-          ./tsimd-tokenize --format tiktoken /tmp/tiny.tiktoken cl100k --threads 4 /tmp/bench16.txt > /dev/null
-          echo "native aarch64 4-thread encode of ~21 MB (the scalar serve):"
-          TSIMD_SERVE_SW=0 time ./tsimd-tokenize --format tiktoken --threads 4 /tmp/tiny.tiktoken cl100k /tmp/bench16.txt > /dev/null
-          echo "native aarch64 4-thread encode of ~21 MB (the neon-classified serve):"
-          TSIMD_SERVE_SW=1 time ./tsimd-tokenize --format tiktoken --threads 4 /tmp/tiny.tiktoken cl100k /tmp/bench16.txt > /dev/null
+          python3 - <<'PYEOF'
+          import os, subprocess, time
+          cmd = ["./tsimd-tokenize", "--format", "tiktoken", "--threads", "4",
+                 "/tmp/tiny.tiktoken", "cl100k", "/tmp/bench16.txt"]
+          def run(sw):
+              env = dict(os.environ, TSIMD_SERVE_SW=sw)
+              subprocess.run(cmd, stdout=subprocess.DEVNULL, check=True, env=env)
+              t0 = time.perf_counter()
+              subprocess.run(cmd, stdout=subprocess.DEVNULL, check=True, env=env)
+              return time.perf_counter() - t0
+          s0 = run("0")
+          s1 = run("1")
+          print(f"native aarch64 4-thread encode of ~21 MB: "
+                f"the scalar serve {s0:.2f}s, the neon-classified serve {s1:.2f}s")
+          PYEOF
 
   avx512-sde:
     runs-on: ubuntu-latest
