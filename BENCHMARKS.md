@@ -3380,3 +3380,37 @@ Walker-window rescues: document 7.6 percent, owt 3.8 percent
 27.3 ns/window of ~99, ascii masks 7.8, carries 3.1, algebra+uni
 16.4; the walk+put/serve side holds ~70 percent. Full detail:
 docs/279, docs/280, docs/281, docs/282.
+
+## Native aarch64 (the NEON arm64 branch, 2026-11)
+
+The NEON arm64 branch runs the same engine natively on ARM,
+byte-exact against the x86 build (the cross-arch parity verified on
+the full corpora for 13 model families at 1/6/16 threads). The
+arm64 coverage: the NEON classify (the 128-bit lane algebra, 1034
+checks), the whole-segment serve fill for cl100k/o200k/qwen25/gpt2/
+gpt2d, the scalar serve for the other families, and the scalar
+encode engines.
+
+Measured on the GitHub Actions arm64 runner (ubuntu-24.04-arm,
+4 vCPU Neoverse class), gcc Release, the CI bench harness:
+
+| path | threads | corpus | elapsed |
+| --- | --- | --- | --- |
+| the scalar serve | 4 | ~21 MB natural | 0.27 s |
+| the neon-classified serve | 4 | ~21 MB natural | 0.31 s |
+
+The synthetic 256-byte-token model (the byte-fallback dominated):
+~59 MB/s single thread. The adversarial workload = every byte its
+own token; the natural-text throughput is higher.
+
+The absolute numbers are not comparable to the x86 table above (the
+different ISA, the different runner class). The x86/aarch64 ratio
+is not a quality metric — the arm64 branch prioritizes correctness
+(byte-exact cross-arch parity) over tuning. The NEON spanner ports
+and the arm64-specific optimisations are future work.
+
+The arm64 gate (scripts/run_arm64_gate.sh) runs under qemu on the
+x86 development machine: the NEON classify 1034 checks, ctest 78 of
+78, and the 13-case cross-arch parity (count + FNV-1a hash per
+family at 1/6/16 threads). The CI runs the same gate natively on
+the arm runner plus the serve A/B bench.
