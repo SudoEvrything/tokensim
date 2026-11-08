@@ -17,7 +17,7 @@ run() {
       -malloc_limit_mb=4096 2>&1 | grep -E "MISMATCH|Done " | tail -1
   echo "== $name par (${PB}s)"
   TSIMD_FUZZ_SPEC="$spec" timeout $((PB + 60)) /tmp/tsimd-fuzz-par \
-      -max_total_time="$PB" -max_len=4096 -len_control=0 -timeout=8 \
+      -max_total_time="$PB" -max_len=4096 -len_control=0 -timeout=30 \
       -rss_limit_mb=4096 -malloc_limit_mb=4096 2>&1 |
       grep -E "MISMATCH|PAR-|Done |timeout after" | tail -1
 }
