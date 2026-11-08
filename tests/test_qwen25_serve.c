@@ -3,9 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define QWEN_NFC TSIMD_SRC_DIR "/models/reference/qwen2.5-0.5b_tokenizer.json"
 #define QWEN_NONORM TSIMD_SRC_DIR "/models/reference/qwen2.5-0.5b_nonorm.json"
+#define SMOLLM2 TSIMD_SRC_DIR "/models/reference/smollm2_tokenizer.json"
 #define CORPUS TSIMD_SRC_DIR "/testdata/owt.txt"
 
 static const char *CASES[] = {
@@ -150,6 +152,11 @@ int main(int argc, char **argv) {
     }
     int fails = run_one(QWEN_NONORM, corpus, clen);
     fails += run_one(QWEN_NFC, corpus, clen);
+    if (access(SMOLLM2, 0) == 0) {
+        setenv("TSIMD_GPT2D_SPAN", "0", 1);
+        fails += run_one(SMOLLM2, corpus, clen);
+        unsetenv("TSIMD_GPT2D_SPAN");
+    }
     free(corpus);
     if (fails) {
         fprintf(stderr, "qwen25 serve parity FAILED\n");

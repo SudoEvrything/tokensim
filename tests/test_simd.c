@@ -234,6 +234,7 @@ int main(void) {
         TEST_ASSERT(check_input(TSIMD_PRETOK_GPT2, d, n, "hand") == 0);
         TEST_ASSERT(check_input(TSIMD_PRETOK_CL100K, d, n, "hand") == 0);
         TEST_ASSERT(check_input(TSIMD_PRETOK_O200K, d, n, "hand") == 0);
+        TEST_ASSERT(check_input(TSIMD_PRETOK_QWEN25, d, n, "hand") == 0);
     }
 
     {
@@ -426,6 +427,7 @@ int main(void) {
             gen(buf, n, 1);
             TEST_ASSERT(check_input(TSIMD_PRETOK_GPT2, buf, n, "len-sweep") == 0);
             TEST_ASSERT(check_input(TSIMD_PRETOK_CL100K, buf, n, "len-sweep") == 0);
+            TEST_ASSERT(check_input(TSIMD_PRETOK_QWEN25, buf, n, "len-sweep") == 0);
         }
     }
 
@@ -438,6 +440,7 @@ int main(void) {
                 TEST_ASSERT(check_input(TSIMD_PRETOK_GPT2, buf, n, "fuzz") == 0);
                 TEST_ASSERT(check_input(TSIMD_PRETOK_CL100K, buf, n, "fuzz") == 0);
                 TEST_ASSERT(check_input(TSIMD_PRETOK_O200K, buf, n, "fuzz") == 0);
+                TEST_ASSERT(check_input(TSIMD_PRETOK_QWEN25, buf, n, "fuzz") == 0);
             }
         }
 
@@ -449,6 +452,7 @@ int main(void) {
             TEST_ASSERT(check_input(TSIMD_PRETOK_GPT2, big, n, "big") == 0);
             TEST_ASSERT(check_input(TSIMD_PRETOK_CL100K, big, n, "big") == 0);
             TEST_ASSERT(check_input(TSIMD_PRETOK_O200K, big, n, "big") == 0);
+            TEST_ASSERT(check_input(TSIMD_PRETOK_QWEN25, big, n, "big") == 0);
             free(big);
         }
     }
