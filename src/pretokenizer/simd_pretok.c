@@ -905,48 +905,21 @@ int tsimd_pretokenize_simd_ex(tsimd_pretok_scheme_t scheme,
 }
 
 typedef struct {
-    tsimd_pcache_span_t *ents;
-    size_t cap;
-    size_t n;
-    size_t last_end;
-    const uint8_t *data;
-    size_t len;
-    int stop;
+    tsimd_span_array_t *out;
 } serve_fill_ctx_t;
 
 static int serve_fill_fn(void *ud, size_t s, size_t e) {
     serve_fill_ctx_t *c = ud;
-    if (c->n >= c->cap) {
-        c->stop = 1;
-        return 2;
-    }
-    tsimd_pcache_span_t *en = &c->ents[c->n];
-    en->ptr = c->data + s;
-    uint32_t el = (uint32_t)(e - s);
-    if (el <= TSIMD_PCACHE_MAX_SPAN)
-        tsimd_pcache_key_inline(en->ptr, el, c->data + c->len,
-                                &en->k0, &en->k1, &en->meta);
-    else {
-        en->k0 = 0;
-        en->k1 = 1;
-        en->meta = el;
-    }
-    c->last_end = e;
-    c->n++;
-    return 0;
+    return tsimd_span_array_push(c->out, (uint32_t)s, (uint32_t)e);
 }
 
 int tsimd_pretok_serve_fill(tsimd_pretok_scheme_t scheme,
                             const uint8_t *data, size_t len,
                             size_t start,
-                            void *ents_v, size_t cap,
-                            size_t *n_out, size_t *end_out) {
+                            tsimd_span_array_t *out) {
     serve_fill_ctx_t c;
     memset(&c, 0, sizeof(c));
-    c.ents = (tsimd_pcache_span_t *)ents_v;
-    c.cap = cap;
-    c.data = data;
-    c.len = len;
+    c.out = out;
 
     sw_t st;
     memset(&st, 0, sizeof(st));
@@ -961,14 +934,9 @@ int tsimd_pretok_serve_fill(tsimd_pretok_scheme_t scheme,
     st.ud = &c;
     seek(&st, start);
 
-    int rc = pretok_walk(&st);
-    *n_out = c.n;
-    if (c.stop) {
-        *end_out = c.last_end;
-        return 0;
-    }
-    *end_out = len;
-    return rc;
+    if (getenv("TSIMD_SERVE_SPAN_DUMP"))
+        fprintf(stderr, "FILL start=%zu\n", start);
+    return pretok_walk(&st);
 }
 
 int tsimd_pretokenize_simd(tsimd_pretok_scheme_t scheme,
