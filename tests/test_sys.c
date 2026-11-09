@@ -1,6 +1,7 @@
 #include "tokensimd_sys.h"
 
 #include "tokenizer.h"
+#include "batch.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -190,6 +191,50 @@ int main(void) {
                       memcmp(own, ids, n_ids * sizeof(uint32_t)) == 0,
                   "shrunk-call ids equal the sequential ids");
             tsimd_sys_free(ref);
+        }
+        {
+            tsimd_input_span_t spans[9];
+            const char *parts[9] = {"Hello, ", "world! ", "The quick ",
+                                    "brown fox ", "jumps over ",
+                                    "the lazy dog. ", "def fib(n):\\n",
+                                    "    return n\\n", "x"};
+            uint32_t *flat = NULL;
+            size_t n_flat = 0;
+            size_t *offs = NULL;
+            for (int i = 0; i < 9; i++) {
+                spans[i].data = (const uint8_t *)parts[i];
+                spans[i].length = strlen(parts[i]);
+            }
+            check(tsimd_sys_encode_batch(h, spans, 9, 0, &flat, &n_flat,
+                                         &offs) == 0,
+                  "encode batch");
+            check(offs != NULL && offs[0] == 0, "batch offsets start");
+            size_t acc = 0;
+            int all_eq = 1;
+            for (int i = 0; i < 9; i++) {
+                uint32_t *one = NULL;
+                size_t n_one = 0;
+                check(tsimd_sys_encode(h, (const uint8_t *)parts[i],
+                                       strlen(parts[i]), 1, &one,
+                                       &n_one) == 0,
+                      "batch per-doc reference");
+                if (offs[i] != acc) all_eq = 0;
+                if (n_flat < offs[i] + n_one ||
+                    memcmp(flat + offs[i], one,
+                           n_one * sizeof(uint32_t)) != 0)
+                    all_eq = 0;
+                acc = offs[i] + n_one;
+                tsimd_sys_free(one);
+            }
+            if (acc != n_flat) all_eq = 0;
+            check(all_eq, "batch ids and offsets equal the per-doc encodes");
+            uint32_t *eflat = NULL;
+            size_t n_eflat = 0;
+            size_t *eoffs = NULL;
+            check(tsimd_sys_encode_batch(h, spans, 0, 0, &eflat, &n_eflat,
+                                         &eoffs) == 0,
+                  "encode batch empty");
+            check(n_eflat == 0, "encode batch empty id count");
         }
         free(big);
     }

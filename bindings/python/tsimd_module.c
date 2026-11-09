@@ -2,6 +2,7 @@
 #include <Python.h>
 
 #include "tokenizer.h"
+#include "batch.h"
 #include "tokensimd_version.h"
 
 #include <stdint.h>
@@ -162,6 +163,77 @@ static PyObject *tok_encode_threads(TokObject *self, PyObject *args) {
     return out;
 }
 
+static PyObject *tok_encode_batch(TokObject *self, PyObject *args) {
+    PyObject *docs_obj;
+    int threads = 0;
+    if (!PyArg_ParseTuple(args, "O|i", &docs_obj, &threads)) return NULL;
+    PyObject *fast = PySequence_Fast(docs_obj,
+                                     "encode_batch expects a sequence of "
+                                     "bytes-like objects");
+    if (!fast) return NULL;
+    Py_ssize_t n = PySequence_Fast_GET_SIZE(fast);
+    if (n == 0) {
+        Py_DECREF(fast);
+        return PyList_New(0);
+    }
+    Py_buffer *views = calloc((size_t)n, sizeof(Py_buffer));
+    tsimd_input_span_t *spans = malloc((size_t)n * sizeof *spans);
+    if (!views || !spans) {
+        free(views);
+        free(spans);
+        Py_DECREF(fast);
+        return PyErr_NoMemory();
+    }
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *item = PySequence_Fast_GET_ITEM(fast, i);
+        if (PyObject_GetBuffer(item, &views[i], PyBUF_CONTIG_RO) != 0) {
+            for (Py_ssize_t j = 0; j < i; j++) PyBuffer_Release(&views[j]);
+            free(views);
+            free(spans);
+            Py_DECREF(fast);
+            return NULL;
+        }
+        spans[i].data = (const uint8_t *)views[i].buf;
+        spans[i].length = (size_t)views[i].len;
+    }
+    tsimd_token_batch_t batch;
+    memset(&batch, 0, sizeof batch);
+    int rc;
+    Py_BEGIN_ALLOW_THREADS
+    pthread_mutex_lock(&self->mu);
+    rc = tsimd_tokenizer_encode_batch(self->tok, spans, (size_t)n, &batch,
+                                      threads);
+    pthread_mutex_unlock(&self->mu);
+    Py_END_ALLOW_THREADS
+    for (Py_ssize_t i = 0; i < n; i++) PyBuffer_Release(&views[i]);
+    free(views);
+    free(spans);
+    Py_DECREF(fast);
+    if (rc != 0) {
+        PyErr_SetString(TokError, "encode_batch failed");
+        return NULL;
+    }
+    PyObject *out = PyList_New(n);
+    if (!out) {
+        tsimd_token_batch_free(&batch);
+        return NULL;
+    }
+    for (Py_ssize_t i = 0; i < n; i++) {
+        size_t start = batch.offsets[i];
+        size_t end = i + 1 < n ? batch.offsets[i + 1] : batch.id_count;
+        PyObject *piece = PyBytes_FromStringAndSize(
+            (const char *)(batch.ids + start), (Py_ssize_t)(end - start) * 4);
+        if (!piece || PyList_SetItem(out, i, piece) != 0) {
+            Py_XDECREF(piece);
+            Py_DECREF(out);
+            tsimd_token_batch_free(&batch);
+            return NULL;
+        }
+    }
+    tsimd_token_batch_free(&batch);
+    return out;
+}
+
 static PyObject *tok_encode_bound(TokObject *self, PyObject *args) {
     Py_ssize_t len;
     if (!PyArg_ParseTuple(args, "n", &len)) return NULL;
@@ -281,6 +353,8 @@ static PyMethodDef Tok_methods[] = {
      "encode_threads(bytes, threads=0) -> bytes of uint32 LE ids"},
     {"encode_threads_into", (PyCFunction)tok_encode_threads_into, METH_VARARGS,
      "encode_threads_into(bytes, bytearray_out, threads=0) -> id count"},
+    {"encode_batch", (PyCFunction)tok_encode_batch, METH_VARARGS,
+     "encode_batch(list_of_bytes, threads=0) -> [bytes of uint32 LE ids]"},
     {"encode_bound", (PyCFunction)tok_encode_bound, METH_VARARGS,
      "encode_bound(len) -> required out-buffer bytes"},
     {"decode", (PyCFunction)tok_decode, METH_VARARGS,

@@ -1,10 +1,14 @@
 #include <tokensim/tokenizer.h>
+#include <tokensim/batch.h>
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 static double now(void) {
     struct timespec ts;
@@ -95,28 +99,32 @@ int main(int argc, char **argv) {
     }
     printf("threads(auto): %d\n", tsimd_default_threads());
 
-    FILE *f = fopen(argv[4], "rb");
-    if (!f) {
+    int fd = open(argv[4], O_RDONLY);
+    if (fd < 0) {
         fprintf(stderr, "cannot open %s\n", argv[4]);
         return 1;
     }
-    fseek(f, 0, SEEK_END);
-    long fsz = ftell(f);
-    rewind(f);
-    uint8_t *buf = malloc(doc_bytes);
-    if (!buf) return 1;
+    long fsz = lseek(fd, 0, SEEK_END);
+    lseek(fd, 0, SEEK_SET);
+    uint8_t *buf = mmap(NULL, (size_t)fsz, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (buf == MAP_FAILED) {
+        fprintf(stderr, "mmap failed\n");
+        return 1;
+    }
+    madvise(buf, (size_t)fsz, MADV_SEQUENTIAL);
 
     uint64_t h = 0xcbf29ce484222325ULL;
     unsigned long long total = 0, checked = 0, bad = 0;
     size_t docs = 0;
     long rss[5] = {rss_kb(), -1, -1, -1, -1};
     double t0 = now();
-    for (;;) {
-        size_t n = fread(buf, 1, doc_bytes, f);
-        if (n == 0) break;
+    for (size_t off = 0; off < (size_t)fsz; off += doc_bytes) {
+        size_t n = (size_t)fsz - off < doc_bytes ? (size_t)fsz - off
+                                                 : doc_bytes;
         tsimd_token_sequence_t seq;
         memset(&seq, 0, sizeof seq);
-        if (tsimd_tokenizer_encode_parallel(&t, buf, n, threads, &seq) != 0) {
+        if (tsimd_tokenizer_encode_parallel(&t, buf + off, n, threads,
+                                            &seq) != 0) {
             fprintf(stderr, "encode failed\n");
             return 1;
         }
@@ -131,13 +139,13 @@ int main(int argc, char **argv) {
             tsimd_byte_sequence_t back;
             memset(&back, 0, sizeof back);
             if (tsimd_tokenizer_decode(&t, seq.ids, seq.count, 0, &back) != 0 ||
-                back.len != n || memcmp(back.bytes, buf, n) != 0)
+                back.len != n || memcmp(back.bytes, buf + off, n) != 0)
                 bad++;
             checked++;
             tsimd_byte_sequence_free(&back);
         }
         tsimd_token_sequence_free(&seq);
-        long pos = ftell(f);
+        long pos = (long)(off + n);
         if (fsz > 0 && pos > 0) {
             for (int q = 1; q < 5; q++)
                 if (rss[q] < 0 && pos * 4 >= fsz * q) rss[q] = rss_kb();
@@ -169,28 +177,41 @@ int main(int argc, char **argv) {
     uint64_t ph = 0xcbf29ce484222325ULL;
     unsigned long long pids = 0;
     double p0 = now();
-    for (long i = 0; i < prompt_calls; i++) {
-        const char *p = prompts[i % 8];
-        tsimd_token_sequence_t seq;
-        memset(&seq, 0, sizeof seq);
-        if (tsimd_tokenizer_encode_parallel(&t, (const uint8_t *)p, strlen(p),
-                                            threads, &seq) != 0) {
-            fprintf(stderr, "prompt encode failed\n");
+    long batch_n = 256;
+    tsimd_input_span_t *spans = malloc((size_t)batch_n * sizeof *spans);
+    if (!spans) return 1;
+    for (long done = 0; done < prompt_calls; done += batch_n) {
+        long n = prompt_calls - done < batch_n ? prompt_calls - done
+                                               : batch_n;
+        for (long i = 0; i < n; i++) {
+            spans[i].data = (const uint8_t *)prompts[(done + i) % 8];
+            spans[i].length = strlen(prompts[(done + i) % 8]);
+        }
+        tsimd_token_batch_t batch;
+        memset(&batch, 0, sizeof batch);
+        if (tsimd_tokenizer_encode_batch(&t, spans, (size_t)n, &batch,
+                                         threads) != 0) {
+            fprintf(stderr, "prompt batch failed\n");
             return 1;
         }
-        ph = fold_u64(ph, (uint64_t)seq.count);
-        ph = fold_ids(ph, seq.ids, seq.count);
-        pids += seq.count;
-        tsimd_token_sequence_free(&seq);
+        for (size_t d = 0; d < n; d++) {
+            size_t a = batch.offsets[d];
+            size_t b = batch.offsets[d + 1];
+            ph = fold_u64(ph, (uint64_t)(b - a));
+            ph = fold_ids(ph, batch.ids + a, b - a);
+            pids += b - a;
+        }
+        tsimd_token_batch_free(&batch);
     }
+    free(spans);
     double p1 = now();
     printf("prompts: %ld calls in %.3f s = %.0f calls/s, %llu ids, "
            "hash 0x%016llx\n",
            prompt_calls, p1 - p0, prompt_calls / (p1 - p0), pids,
            (unsigned long long)ph);
 
-    free(buf);
-    fclose(f);
+    munmap(buf, (size_t)fsz);
+    close(fd);
     tsimd_tokenizer_free(&t);
     return 0;
 }

@@ -147,6 +147,31 @@ def binding_error_check(tok, data, model_path):
         pass
     return True
 
+def batch_check(tok, docs):
+    expect = [tok.encode(d) for d in docs]
+    got = tok.encode_batch(docs)
+    if len(got) != len(docs):
+        print("encode_batch lost documents")
+        return False
+    for a, b in zip(got, expect):
+        if a != b:
+            print("encode_batch ids differ from the per-doc encode")
+            return False
+    if tok.encode_batch([]) != []:
+        print("encode_batch([]) is not empty")
+        return False
+    try:
+        tok.encode_batch([b"ok", "a str"])
+        print("encode_batch accepted a str")
+        return False
+    except TypeError:
+        pass
+    joined = b"".join(got)
+    if len(joined) % 4 != 0:
+        print("encode_batch produced ragged output")
+        return False
+    return True
+
 def thread_safety_check(tok, big):
     import threading
     expect = tok.encode(big)
@@ -298,6 +323,11 @@ def main():
     else:
         fails += 1
         print("concurrent encode thread safety FAIL")
+    if batch_check(tok_b, [t.encode("utf-8") for t in TEXTS]):
+        print("encode_batch OK")
+    else:
+        fails += 1
+        print("encode_batch FAIL")
     if encode_bytes_check(tok_b, TEXTS[0].encode("utf-8") * 40):
         print("encode_bytes/threads parity OK")
     else:

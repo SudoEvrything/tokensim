@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "batch.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,6 +28,9 @@ int tsimd_sys_encode_bound(tsimd_sys *h, const uint8_t *data, size_t len,
                            int threads, size_t *cap_out);
 int tsimd_sys_decode(tsimd_sys *h, const uint32_t *ids, size_t n,
                      int skip_special, uint8_t **bytes, size_t *n_bytes);
+int tsimd_sys_encode_batch(tsimd_sys *h, const tsimd_input_span_t *docs,
+                           size_t n_docs, int threads, uint32_t **ids,
+                           size_t *n_ids, size_t **offsets);
 int tsimd_sys_encode_own(tsimd_sys *h, const uint8_t *data, size_t len,
                         int threads);
 const uint32_t *tsimd_sys_ids(const tsimd_sys *h, size_t *n);

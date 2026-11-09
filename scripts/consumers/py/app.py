@@ -1,3 +1,4 @@
+import mmap
 import os
 import sys
 import time
@@ -53,12 +54,13 @@ def main():
     docs = 0
     rss = [rss_kb(), -1, -1, -1, -1]
     t0 = time.perf_counter()
-    with open(corpus, "rb") as f:
-        while True:
-            doc = f.read(doc_bytes)
-            if not doc:
-                break
-            raw = tok.encode_threads(doc, threads) if threads else tok(doc)
+    with open(corpus, "rb") as f, mmap.mmap(f.fileno(), 0,
+                                            access=mmap.ACCESS_READ) as mm:
+        mv = memoryview(mm)
+        for off in range(0, fsz, doc_bytes):
+            n = min(fsz - off, doc_bytes)
+            raw = (tok.encode_threads(mv[off:off + n], threads)
+                   if threads else tok(mv[off:off + n]))
             count = len(raw) // 4
             h = fold_count(h, count)
             head = min(count, 4096)
@@ -67,15 +69,15 @@ def main():
                 h = fold(h, raw[(count - head) * 4:])
             total += count
             docs += 1
-            if docs % 64 == 0 or len(doc) < doc_bytes:
-                if tok.decode(raw) != doc:
+            if docs % 64 == 0 or n < doc_bytes:
+                if tok.decode(raw) != mm[off:off + n]:
                     bad += 1
                 checked += 1
-            pos = f.tell()
-            if pos > 0:
-                for q in range(1, 5):
-                    if rss[q] < 0 and pos * 4 >= fsz * q:
-                        rss[q] = rss_kb()
+            pos = off + n
+            for q in range(1, 5):
+                if rss[q] < 0 and pos * 4 >= fsz * q:
+                    rss[q] = rss_kb()
+        mv.release()
     t1 = time.perf_counter()
     for i in range(5):
         if rss[i] < 0:
@@ -90,14 +92,18 @@ def main():
     ph = FNV0
     pids = 0
     p0 = time.perf_counter()
-    for i in range(prompt_calls):
-        prompt = PROMPTS[i % 8].encode()
-        raw = (tok.encode_threads(prompt, threads)
-               if threads else tok(prompt))
-        count = len(raw) // 4
-        ph = fold_count(ph, count)
-        ph = fold(ph, raw)
-        pids += count
+    batch_n = 256
+    done = 0
+    while done < prompt_calls:
+        n = min(prompt_calls - done, batch_n)
+        chunk = [PROMPTS[(done + i) % 8].encode() for i in range(n)]
+        batch = tok.encode_batch(chunk, threads)
+        for raw in batch:
+            count = len(raw) // 4
+            ph = fold_count(ph, count)
+            ph = fold(ph, raw)
+            pids += count
+        done += n
     p1 = time.perf_counter()
     print(
         f"prompts: {prompt_calls} calls in {p1 - p0:.3f} s = "

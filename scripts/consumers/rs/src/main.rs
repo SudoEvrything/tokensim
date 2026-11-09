@@ -1,6 +1,7 @@
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::time::Instant;
+use memmap2::Mmap;
 use tokensim::{default_threads, Format, Tokenizer};
 
 const PRIME: u64 = 0x100000001B3;
@@ -89,8 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("threads(auto): {}", default_threads());
 
     let fsz = std::fs::metadata(&args[4])?.len();
-    let mut reader = BufReader::with_capacity(1 << 20, File::open(&args[4])?);
-    let mut doc = vec![0u8; doc_bytes];
+    let mmap = unsafe { Mmap::map(&File::open(&args[4])?)? };
 
     let mut h = FNV0;
     let mut total: u64 = 0;
@@ -102,23 +102,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut owned: Vec<u32> = Vec::new();
     let mut do_check = false;
     let t0 = Instant::now();
+    let mut off: usize = 0;
     loop {
-        let mut n = 0usize;
-        while n < doc_bytes {
-            let got = reader.read(&mut doc[n..])?;
-            if got == 0 {
-                break;
-            }
-            n += got;
-        }
+        let n = usize::min(fsz as usize - off, doc_bytes);
         if n == 0 {
             break;
         }
         {
+            let doc = &mmap[off..off + n];
             let ids = if threads != 0 {
-                tok.encode_threads(&doc[..n], threads)?
+                tok.encode_threads(doc, threads)?
             } else {
-                tok.encode(&doc[..n])?
+                tok.encode(doc)?
             };
             fold_count(&mut h, ids.len() as u64);
             let head = ids.len().min(4096);
@@ -135,11 +130,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         docs += 1;
         if do_check {
-            if tok.decode(&owned)? != doc[..n] {
+            if tok.decode(&owned)? != mmap[off..off + n] {
                 bad += 1;
             }
             checked += 1;
         }
+        off += n;
         pos += n as u64;
         for q in 1..5u64 {
             if rss[q as usize] < 0 && pos * 4 >= fsz * q {
@@ -170,16 +166,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ph = FNV0;
     let mut pids: u64 = 0;
     let p0 = Instant::now();
-    for i in 0..prompt_calls {
-        let p = PROMPTS[i % 8];
-        let ids = if threads != 0 {
-            tok.encode_threads(p.as_bytes(), threads)?
-        } else {
-            tok.encode(p.as_bytes())?
-        };
-        fold_count(&mut ph, ids.len() as u64);
-        fold_ids(&mut ph, ids);
-        pids += ids.len() as u64;
+    let batch_n = 256;
+    let mut done: usize = 0;
+    while done < prompt_calls {
+        let n = usize::min(prompt_calls - done, batch_n);
+        let chunk: Vec<&[u8]> = (0..n)
+            .map(|i| PROMPTS[(done + i) % 8].as_bytes())
+            .collect();
+        let batch = tok.encode_batch(&chunk, threads)?;
+        for ids in &batch {
+            fold_count(&mut ph, ids.len() as u64);
+            fold_ids(&mut ph, ids);
+            pids += ids.len() as u64;
+        }
+        done += n;
     }
     let pel = p0.elapsed().as_secs_f64();
     println!(

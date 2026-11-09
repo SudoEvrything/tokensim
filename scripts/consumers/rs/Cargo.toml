@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 tokensim = { path = "../../../bindings/rust" }
+memmap2 = "0.9"

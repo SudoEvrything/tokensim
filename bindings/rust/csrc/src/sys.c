@@ -3,6 +3,7 @@
 #include "tokenizer.h"
 #include "tokensimd_version.h"
 #include "allocator.h"
+#include "batch.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +12,10 @@
 struct tsimd_sys {
     tsimd_tokenizer_t tok;
     tsimd_token_sequence_t reuse;
+    uint32_t *batch_ids;
+    size_t batch_ids_cap;
+    size_t *batch_offsets;
+    size_t batch_offsets_cap;
 };
 
 static int parse_format(const char *format) {
@@ -78,6 +83,8 @@ tsimd_sys *tsimd_sys_open(const char *model_path, const char *format,
 void tsimd_sys_close(tsimd_sys *h) {
     if (!h) return;
     tsimd_token_sequence_free(&h->reuse);
+    tsimd_xfree(h->batch_ids);
+    tsimd_xfree(h->batch_offsets);
     tsimd_tokenizer_free(&h->tok);
     tsimd_xfree(h);
 }
@@ -187,6 +194,55 @@ int tsimd_sys_decode(tsimd_sys *h, const uint32_t *ids, size_t n,
     tsimd_byte_sequence_free(&dec);
     if (bytes) *bytes = buf;
     if (n_bytes) *n_bytes = dlen;
+    return 0;
+}
+
+static int span_array_grow(size_t **arr, size_t *cap, size_t need) {
+    if (*cap >= need) return 0;
+    size_t nc = *cap ? *cap : 64;
+    while (nc < need) nc *= 2;
+    size_t *grown = tsimd_xrealloc(*arr, nc * sizeof(size_t));
+    if (!grown) return -1;
+    *arr = grown;
+    *cap = nc;
+    return 0;
+}
+
+int tsimd_sys_encode_batch(tsimd_sys *h, const tsimd_input_span_t *docs,
+                           size_t n_docs, int threads, uint32_t **ids,
+                           size_t *n_ids, size_t **offsets) {
+    if (!h || n_docs == 0) {
+        if (n_ids) *n_ids = 0;
+        if (offsets) *offsets = NULL;
+        if (ids) *ids = NULL;
+        return !h ? -1 : 0;
+    }
+    if (span_array_grow(&h->batch_offsets, &h->batch_offsets_cap,
+                        n_docs + 1) != 0)
+        return -1;
+    tsimd_token_batch_t batch;
+    memset(&batch, 0, sizeof batch);
+    int rc;
+    rc = tsimd_tokenizer_encode_batch(&h->tok, docs, n_docs, &batch, threads);
+    if (rc != 0) return -1;
+    if (batch.id_count > h->batch_ids_cap) {
+        size_t cap = h->batch_ids_cap ? h->batch_ids_cap : 4096;
+        while (cap < batch.id_count) cap *= 2;
+        uint32_t *grown = tsimd_xrealloc(h->batch_ids,
+                                         cap * sizeof(uint32_t));
+        if (!grown) {
+            tsimd_token_batch_free(&batch);
+            return -1;
+        }
+        h->batch_ids = grown;
+        h->batch_ids_cap = cap;
+    }
+    memcpy(h->batch_ids, batch.ids, batch.id_count * sizeof(uint32_t));
+    memcpy(h->batch_offsets, batch.offsets, (n_docs + 1) * sizeof(size_t));
+    if (ids) *ids = h->batch_ids;
+    if (n_ids) *n_ids = batch.id_count;
+    if (offsets) *offsets = h->batch_offsets;
+    tsimd_token_batch_free(&batch);
     return 0;
 }
 

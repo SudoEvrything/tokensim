@@ -58,6 +58,22 @@ extern "C" {
     ) -> c_int;
     fn tsimd_sys_free(p: *mut c_void);
     fn tsimd_default_threads() -> c_int;
+    fn tsimd_sys_encode_batch(
+        h: *mut TsimdSys,
+        docs: *const TsimdInputSpan,
+        n_docs: usize,
+        threads: c_int,
+        ids: *mut *mut u32,
+        n_ids: *mut usize,
+        offsets: *mut *mut usize,
+    ) -> c_int;
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct TsimdInputSpan {
+    data: *const u8,
+    length: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -197,6 +213,53 @@ impl Tokenizer {
         Ok(n)
     }
 
+    pub fn encode_batch(
+    &mut self,
+    docs: &[&[u8]],
+    threads: usize,
+) -> Result<Vec<Vec<u32>>, String> {
+    if docs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let spans: Vec<TsimdInputSpan> = docs
+        .iter()
+        .map(|d| TsimdInputSpan {
+            data: d.as_ptr(),
+            length: d.len(),
+        })
+        .collect();
+    let mut ids: *mut u32 = ptr::null_mut();
+    let mut n_ids: usize = 0;
+    let mut offsets: *mut usize = ptr::null_mut();
+    let rc = unsafe {
+        tsimd_sys_encode_batch(
+            self.handle,
+            spans.as_ptr(),
+            spans.len(),
+            threads.min(c_int::MAX as usize) as c_int,
+            &mut ids,
+            &mut n_ids,
+            &mut offsets,
+        )
+    };
+    if rc != 0 {
+        return Err("encode_batch failed".to_string());
+    }
+    let id_slice = unsafe { std::slice::from_raw_parts(ids, n_ids) };
+    let off_slice =
+        unsafe { std::slice::from_raw_parts(offsets, docs.len() + 1) };
+    let mut out = Vec::with_capacity(docs.len());
+    for i in 0..docs.len() {
+        let a = off_slice[i];
+        let b = off_slice[i + 1];
+        if a > n_ids || b > n_ids || a > b {
+            return Err("encode_batch returned bad offsets".to_string());
+        }
+        out.push(id_slice[a..b].to_vec());
+    }
+    Ok(out)
+}
+
     pub fn encode_bound(&self, len: usize) -> usize {
         let mut cap: usize = 0;
         unsafe { tsimd_sys_encode_bound(self.handle, ptr::null(), len, 1, &mut cap) };
@@ -312,6 +375,28 @@ mod tests {
         assert!(!ids.is_empty());
         let text = tok.decode(&ids).unwrap();
         assert_eq!(text, b"Hello world, this is a test.");
+    }
+
+    #[test]
+    fn batch_matches_per_doc() {
+        if !models_available() { eprintln!("skip: no models dir"); return; }
+        let mut tok = Tokenizer::open(&model("t5_spiece.model"), Format::SentencePiece, None)
+            .expect("load t5");
+        let docs: Vec<&[u8]> = vec![b"Hello, ", b"world!", b"The quick brown fox"];
+        let per: Vec<Vec<u32>> = docs
+            .iter()
+            .map(|d| tok.encode(d).unwrap().to_vec())
+            .collect();
+        let batch = tok.encode_batch(&docs, 0).unwrap();
+        assert_eq!(batch, per);
+        let empty: Vec<&[u8]> = Vec::new();
+        assert!(tok.encode_batch(&empty, 0).unwrap().is_empty());
+        let mut tok4 = Tokenizer::open(&model("deepseek_tokenizer.json"), Format::Json, None)
+            .expect("load deepseek");
+        let d4: Vec<&[u8]> = vec![b"one two three", b""];
+        let b4 = tok4.encode_batch(&d4, 4).unwrap();
+        assert_eq!(b4[0], tok4.encode(b"one two three").unwrap().to_vec());
+        assert!(b4[1].is_empty());
     }
 
     #[test]
