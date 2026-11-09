@@ -147,6 +147,43 @@ def binding_error_check(tok, data, model_path):
         pass
     return True
 
+def fold_doc_check(tok, docs):
+    def ref_fold(h, raw):
+        count = len(raw) // 4
+        for b in count.to_bytes(8, "little"):
+            h = ((h ^ b) * 0x100000001B3) & ((1 << 64) - 1)
+        head = min(count, 4096) * 4
+        for b in raw[:head]:
+            h = ((h ^ b) * 0x100000001B3) & ((1 << 64) - 1)
+        if count > 4096:
+            for b in raw[(count - 4096) * 4:]:
+                h = ((h ^ b) * 0x100000001B3) & ((1 << 64) - 1)
+        return h
+
+    h = 0xCBF29CE484222325
+    for d in docs:
+        raw = tok.encode(d)
+        h = ref_fold(h, raw)
+    h2 = 0xCBF29CE484222325
+    for d in docs:
+        h2 = tokensim.fold_doc(h2, tok.encode(d))
+    if h != h2:
+        print("fold_doc differs from the reference fold")
+        return False
+    big = docs[0] * 30000 if docs else b""
+    h3 = tokensim.fold_doc(0xCBF29CE484222325, tok.encode(big))
+    h4 = ref_fold(0xCBF29CE484222325, tok.encode(big))
+    if h3 != h4:
+        print("fold_doc differs on a big payload")
+        return False
+    try:
+        tokensim.fold_doc(0xCBF29CE484222325, "a str")
+        print("fold_doc accepted a str")
+        return False
+    except TypeError:
+        pass
+    return True
+
 def batch_check(tok, docs):
     expect = [tok.encode(d) for d in docs]
     got = tok.encode_batch(docs)
@@ -328,6 +365,11 @@ def main():
     else:
         fails += 1
         print("encode_batch FAIL")
+    if fold_doc_check(tok_b, [t.encode("utf-8") for t in TEXTS]):
+        print("fold_doc OK")
+    else:
+        fails += 1
+        print("fold_doc FAIL")
     if encode_bytes_check(tok_b, TEXTS[0].encode("utf-8") * 40):
         print("encode_bytes/threads parity OK")
     else:

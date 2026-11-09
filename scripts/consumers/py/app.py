@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-from tokensim import tokenizer, default_threads
+from tokensim import tokenizer, default_threads, fold_doc
 
 PRIME = 0x100000001B3
 MASK = (1 << 64) - 1
@@ -62,13 +62,8 @@ def main():
             n = min(fsz - off, doc_bytes)
             raw = (tok.encode_threads(mv[off:off + n], threads)
                    if threads else tok(mv[off:off + n]))
-            count = len(raw) // 4
-            h = fold_count(h, count)
-            head = min(count, 4096)
-            h = fold(h, raw[: head * 4])
-            if count > head:
-                h = fold(h, raw[(count - head) * 4:])
-            total += count
+            h = fold_doc(h, raw)
+            total += len(raw) // 4
             docs += 1
             if docs % 64 == 0 or n < doc_bytes:
                 if tok.decode(raw) != mm[off:off + n]:

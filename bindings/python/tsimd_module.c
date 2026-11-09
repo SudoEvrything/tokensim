@@ -430,6 +430,35 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
     return (PyObject *)obj;
 }
 
+static PyObject *mod_fold_doc(PyObject *self, PyObject *args) {
+    unsigned long long h;
+    Py_buffer view;
+    if (!PyArg_ParseTuple(args, "Ky*", &h, &view)) return NULL;
+    const uint8_t *p = (const uint8_t *)view.buf;
+    size_t len = (size_t)view.len;
+    size_t count = len / 4;
+    static const uint64_t PRIME = 0x100000001b3ULL;
+    for (int i = 0; i < 8; i++) {
+        h ^= (uint8_t)(count >> (8 * i));
+        h *= PRIME;
+    }
+    size_t head = count < 4096 ? count : 4096;
+    size_t bytes = head * 4;
+    for (size_t i = 0; i < bytes; i++) {
+        h ^= p[i];
+        h *= PRIME;
+    }
+    if (count > head) {
+        size_t tail = (count - head) * 4;
+        for (size_t i = 0; i < bytes; i++) {
+            h ^= p[tail + i];
+            h *= PRIME;
+        }
+    }
+    PyBuffer_Release(&view);
+    return PyLong_FromUnsignedLongLong(h);
+}
+
 static PyObject *mod_default_threads(PyObject *self, PyObject *args) {
     (void)self;
     (void)args;
@@ -441,6 +470,9 @@ static PyMethodDef mod_methods[] = {
     {"tokenizer", mod_load, METH_VARARGS, "tokenizer(path, format=None, scheme=None) -> Tokenizer"},
     {"default_threads", mod_default_threads, METH_NOARGS,
      "default_threads() -> the automatic worker count"},
+    {"fold_doc", mod_fold_doc, METH_VARARGS,
+     "fold_doc(state, ids_bytes) -> the next FNV-1a state folded over the "
+     "document id count and the head and tail 4096 ids"},
     {NULL, NULL, 0, NULL},
 };
 
