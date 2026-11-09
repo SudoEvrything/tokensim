@@ -74,10 +74,10 @@ int main(int argc, char **argv) {
         return 2;
     }
     size_t doc_bytes =
-        argc > 5 ? (size_t)strtoull(argv[5], NULL, 10) : (size_t)(2u << 20);
+        argc > 5 ? (size_t)strtoull(argv[5], NULL, 10) : (size_t)(16u << 20);
     long prompt_calls = argc > 6 ? strtol(argv[6], NULL, 10) : 20000;
     int threads = argc > 7 ? (int)strtol(argv[7], NULL, 10) : 0;
-    if (doc_bytes == 0) doc_bytes = (size_t)(2u << 20);
+    if (doc_bytes == 0) doc_bytes = (size_t)(16u << 20);
     if (prompt_calls < 0) prompt_calls = 0;
 
     tsimd_model_format_t fmt;

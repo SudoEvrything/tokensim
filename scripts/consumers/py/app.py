@@ -38,7 +38,7 @@ def fold_count(h, v):
 
 def main():
     model, fmt, scheme, corpus = sys.argv[1:5]
-    doc_bytes = int(sys.argv[5]) if len(sys.argv) > 5 else (2 << 20)
+    doc_bytes = int(sys.argv[5]) if len(sys.argv) > 5 else (16 << 20)
     prompt_calls = int(sys.argv[6]) if len(sys.argv) > 6 else 20000
     threads = int(sys.argv[7]) if len(sys.argv) > 7 else 0
 

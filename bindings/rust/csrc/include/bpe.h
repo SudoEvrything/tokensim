@@ -102,10 +102,6 @@ int tsimd_bpe_encode_spm_blocked(const tsimd_vocab_t *v,
                                  const uint8_t *bytes, uint32_t len,
                                  size_t target);
 
-int tsimd_bpe_encode_spm_blocked_par(const tsimd_vocab_t *v,
-                                     tsimd_bpe_workspace_t *ws,
-                                     const uint8_t *bytes, uint32_t len,
-                                     size_t target, int threads);
 
 size_t tsimd_spm_seam_find(const tsimd_vocab_t *v, const uint8_t *bytes,
                            size_t len, size_t want, size_t min_pos);

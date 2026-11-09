@@ -1752,12 +1752,15 @@ int tsimd_par_drain_probe(size_t n, int width, const uint32_t *spin,
         ctx[k].spin = spin;
         ctx[k].runs = runs;
     }
-    for (int k = 1; k < width; k++)
+    for (int k = 1; k < width; k++) {
         if (pthread_create(&threads[k], NULL, probe_thread, &ctx[k]) == 0)
             spawned++;
+        else
+            threads[k] = 0;
+    }
     probe_thread(&ctx[0]);
-    for (int k = 1; k <= spawned; k++)
-        pthread_join(threads[k], NULL);
+    for (int k = 1; k < width; k++)
+        if (threads[k]) pthread_join(threads[k], NULL);
     rc = spawned == width - 1 ? 0 : -1;
 done:
     free(claims);
@@ -2746,14 +2749,17 @@ static int parallel_pool_path_ex(tsimd_tokenizer_t *t, const uint8_t *data,
 #endif
             }
             if (!ids) ids = tsimd_xmalloc(bytes);
+            if (!ids) rc = -1;
         } else if (total > cap) {
             rc = -1;
         }
-        if (rc == 0 && max_threads > 1 && jl.count > 0) {
+        if (rc == 0 && max_threads > 1 && jl.count > 0 &&
+            total >= (2u << 20)) {
             int ng = max_threads - 1;
             if (ng < 1) ng = 1;
             if ((size_t)ng > jl.count) ng = (int)jl.count;
             job_t *gjobs = calloc((size_t)ng, sizeof(job_t));
+            if (!gjobs) rc = -1;
             if (gjobs) {
                 for (int g = 0; g < ng; g++) {
                     gjobs[g].kind = JOB_GATHER;

@@ -70,9 +70,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     }
     let doc_bytes: usize = if args.len() > 5 {
-        args[5].parse().unwrap_or(2 << 20)
+        args[5].parse().unwrap_or(16 << 20)
     } else {
-        2 << 20
+        16 << 20
     };
     let prompt_calls: usize = if args.len() > 6 {
         args[6].parse().unwrap_or(20000)

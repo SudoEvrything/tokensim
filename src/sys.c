@@ -91,18 +91,28 @@ const char *tsimd_sys_version(void) { return TSIMD_VERSION_STRING; }
 static int sys_encode(tsimd_sys *h, const uint8_t *data, size_t len,
                       int threads, const tsimd_token_sequence_t **out) {
     if (!h) return -1;
-    tsimd_xfree(h->reuse.ids);
-    h->reuse.ids = NULL;
-    h->reuse.cap = 0;
-    h->reuse.count = 0;
+    size_t bound = tsimd_tokenizer_encode_bound(&h->tok, len);
+    if (h->reuse.cap < bound) {
+        size_t cap = h->reuse.cap ? h->reuse.cap : 4096;
+        while (cap < bound) cap *= 2;
+        uint32_t *grown = tsimd_xrealloc(h->reuse.ids, cap * sizeof(uint32_t));
+        if (!grown) return -1;
+        h->reuse.ids = grown;
+        h->reuse.cap = cap;
+    }
     int rc;
     if (threads != 1) {
-        rc = tsimd_tokenizer_encode_parallel(&h->tok, data, len, threads,
-                                             &h->reuse);
+        rc = tsimd_tokenizer_encode_parallel_into(&h->tok, data, len, threads,
+                                                  h->reuse.ids, h->reuse.cap,
+                                                  &h->reuse.count);
     } else {
-        rc = tsimd_tokenizer_encode_into(&h->tok, data, len, &h->reuse);
+        rc = tsimd_tokenizer_encode_into_raw(&h->tok, data, len, h->reuse.ids,
+                                             h->reuse.cap, &h->reuse.count);
     }
-    if (rc != 0) return -1;
+    if (rc != 0) {
+        h->reuse.count = 0;
+        return -1;
+    }
     *out = &h->reuse;
     return 0;
 }

@@ -159,6 +159,38 @@ int main(void) {
         tsimd_sys_free(b1);
         tsimd_sys_free(b0);
         tsimd_sys_free(b6);
+        {
+            const char *longer =
+                "A considerably longer sentence, repeated to force the "
+                "reuse buffer to grow beyond its first size. ";
+            size_t nl = strlen(longer);
+            uint32_t *ref = NULL;
+            size_t nr = 0;
+            check(tsimd_sys_encode(h, (const uint8_t *)longer, nl, 1, &ref,
+                                   &nr) == 0,
+                  "reference encode for the reuse checks");
+            check(tsimd_sys_encode_own(h, (const uint8_t *)longer, nl, 1) == 0,
+                  "encode own growth");
+            own = tsimd_sys_ids(h, &n_own);
+            check(own != NULL && n_own == nr &&
+                      memcmp(own, ref, nr * sizeof(uint32_t)) == 0,
+                  "grown-buffer ids equal the reference");
+            const uint32_t *p_grown = own;
+            check(tsimd_sys_encode_own(h, big, bl, 1) == 0,
+                  "encode own on the big payload");
+            own = tsimd_sys_ids(h, &n_own);
+            check(n_own == n1b, "big own id count");
+            const uint32_t *p_big = own;
+            check(tsimd_sys_encode_own(h, (const uint8_t *)text,
+                                       strlen(text), 1) == 0,
+                  "encode own shrink");
+            own = tsimd_sys_ids(h, &n_own);
+            check(own == p_big, "the reuse buffer survives the smaller call");
+            check(n_own == n_ids &&
+                      memcmp(own, ids, n_ids * sizeof(uint32_t)) == 0,
+                  "shrunk-call ids equal the sequential ids");
+            tsimd_sys_free(ref);
+        }
         free(big);
     }
     free(into);

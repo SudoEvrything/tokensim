@@ -17,7 +17,7 @@ usage: <binary> MODEL FORMAT SCHEME CORPUS [DOC_BYTES] [PROMPT_CALLS] [THREADS]
 ```
 
 FORMAT is tiktoken, json, sentencepiece or gpt2. SCHEME is cl100k, o200k
-or gpt2 for the tiktoken families. DOC_BYTES defaults to 2 MiB,
+or gpt2 for the tiktoken families. DOC_BYTES defaults to 16 MiB (the measured saturation point; smaller documents pay the fixed per-call cost more often),
 PROMPT_CALLS to 20000, THREADS to 0 = the automatic default.
 
 ## The warm and the cold protocol

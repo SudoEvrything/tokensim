@@ -2753,7 +2753,8 @@ static int parallel_pool_path_ex(tsimd_tokenizer_t *t, const uint8_t *data,
         } else if (total > cap) {
             rc = -1;
         }
-        if (rc == 0 && max_threads > 1 && jl.count > 0) {
+        if (rc == 0 && max_threads > 1 && jl.count > 0 &&
+            total >= (2u << 20)) {
             int ng = max_threads - 1;
             if (ng < 1) ng = 1;
             if ((size_t)ng > jl.count) ng = (int)jl.count;
