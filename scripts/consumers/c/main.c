@@ -79,6 +79,7 @@ int main(int argc, char **argv) {
     }
     size_t doc_bytes =
         argc > 5 ? (size_t)strtoull(argv[5], NULL, 10) : (size_t)(16u << 20);
+    (void)0;
     long prompt_calls = argc > 6 ? strtol(argv[6], NULL, 10) : 20000;
     int threads = argc > 7 ? (int)strtol(argv[7], NULL, 10) : 0;
     if (doc_bytes == 0) doc_bytes = (size_t)(16u << 20);
@@ -112,6 +113,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     madvise(buf, (size_t)fsz, MADV_SEQUENTIAL);
+    size_t ebound = tsimd_tokenizer_encode_bound(&t, doc_bytes);
+    uint32_t *ebuf = malloc(ebound * 4);
+    if (!ebuf) return 1;
 
     uint64_t h = 0xcbf29ce484222325ULL;
     unsigned long long total = 0, checked = 0, bad = 0;
@@ -121,30 +125,29 @@ int main(int argc, char **argv) {
     for (size_t off = 0; off < (size_t)fsz; off += doc_bytes) {
         size_t n = (size_t)fsz - off < doc_bytes ? (size_t)fsz - off
                                                  : doc_bytes;
-        tsimd_token_sequence_t seq;
-        memset(&seq, 0, sizeof seq);
-        if (tsimd_tokenizer_encode_parallel(&t, buf + off, n, threads,
-                                            &seq) != 0) {
+        size_t n_out = 0;
+        if (tsimd_tokenizer_encode_parallel_into(&t, buf + off, n, threads,
+                                                 ebuf, ebound,
+                                                 &n_out) != 0) {
             fprintf(stderr, "encode failed\n");
             return 1;
         }
-        h = fold_u64(h, (uint64_t)seq.count);
-        size_t head = seq.count < 4096 ? seq.count : 4096;
-        h = fold_ids(h, seq.ids, head);
-        if (seq.count > head)
-            h = fold_ids(h, seq.ids + seq.count - head, head);
-        total += seq.count;
+        h = fold_u64(h, (uint64_t)n_out);
+        size_t head = n_out < 4096 ? n_out : 4096;
+        h = fold_ids(h, ebuf, head);
+        if (n_out > head)
+            h = fold_ids(h, ebuf + n_out - head, head);
+        total += n_out;
         docs++;
         if (docs % 64 == 0 || n < doc_bytes) {
             tsimd_byte_sequence_t back;
             memset(&back, 0, sizeof back);
-            if (tsimd_tokenizer_decode(&t, seq.ids, seq.count, 0, &back) != 0 ||
+            if (tsimd_tokenizer_decode(&t, ebuf, n_out, 0, &back) != 0 ||
                 back.len != n || memcmp(back.bytes, buf + off, n) != 0)
                 bad++;
             checked++;
             tsimd_byte_sequence_free(&back);
         }
-        tsimd_token_sequence_free(&seq);
         long pos = (long)(off + n);
         if (fsz > 0 && pos > 0) {
             for (int q = 1; q < 5; q++)
@@ -210,6 +213,7 @@ int main(int argc, char **argv) {
            prompt_calls, p1 - p0, prompt_calls / (p1 - p0), pids,
            (unsigned long long)ph);
 
+    free(ebuf);
     munmap(buf, (size_t)fsz);
     close(fd);
     tsimd_tokenizer_free(&t);

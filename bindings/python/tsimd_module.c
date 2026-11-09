@@ -14,6 +14,8 @@ typedef struct {
     PyObject_HEAD
     tsimd_tokenizer_t *tok;
     pthread_mutex_t mu;
+    uint32_t *scratch;
+    size_t scratch_cap;
 } TokObject;
 
 static PyObject *TokError;
@@ -24,7 +26,26 @@ static void Tok_dealloc(TokObject *self) {
         tsimd_tokenizer_free(self->tok);
         free(self->tok);
     }
+    free(self->scratch);
     Py_TYPE(self)->tp_free((PyObject *)self);
+}
+
+static int tok_scratch_reserve(TokObject *self, size_t len) {
+    size_t bound = tsimd_tokenizer_encode_bound(self->tok, len);
+    if (self->scratch_cap >= bound) return 0;
+    size_t cap = self->scratch_cap ? self->scratch_cap : 4096;
+    while (cap < bound) cap *= 2;
+    uint32_t *grown =
+        realloc(self->scratch, cap * sizeof(uint32_t));
+    if (!grown) return -1;
+    self->scratch = grown;
+    self->scratch_cap = cap;
+    return 0;
+}
+
+static PyObject *tok_scratch_result(TokObject *self, size_t count) {
+    return PyBytes_FromStringAndSize((const char *)self->scratch,
+                                     (Py_ssize_t)count * 4);
 }
 
 static int format_from_obj(PyObject *obj, tsimd_model_format_t *out) {
@@ -48,14 +69,15 @@ static int format_from_obj(PyObject *obj, tsimd_model_format_t *out) {
 static PyObject *tok_encode(TokObject *self, PyObject *args) {
     Py_buffer view;
     if (!PyArg_ParseTuple(args, "y*", &view)) return NULL;
-    tsimd_token_sequence_t seq;
-    memset(&seq, 0, sizeof seq);
+    size_t count = 0;
     int rc;
     Py_BEGIN_ALLOW_THREADS
     pthread_mutex_lock(&self->mu);
-    rc = tsimd_tokenizer_encode_parallel(self->tok,
-                                         (const uint8_t *)view.buf,
-                                         (size_t)view.len, 0, &seq);
+    rc = tok_scratch_reserve(self, (size_t)view.len);
+    if (rc == 0)
+        rc = tsimd_tokenizer_encode_parallel_into(
+            self->tok, (const uint8_t *)view.buf, (size_t)view.len, 0,
+            self->scratch, self->scratch_cap, &count);
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
@@ -63,10 +85,7 @@ static PyObject *tok_encode(TokObject *self, PyObject *args) {
         PyErr_SetString(TokError, "encode failed");
         return NULL;
     }
-    PyObject *out = PyBytes_FromStringAndSize((const char *)seq.ids,
-                                              (Py_ssize_t)seq.count * 4);
-    tsimd_token_sequence_free(&seq);
-    return out;
+    return tok_scratch_result(self, count);
 }
 
 static PyObject *tok_call(TokObject *self, PyObject *args, PyObject *kwargs) {
@@ -81,14 +100,15 @@ static PyObject *tok_call(TokObject *self, PyObject *args, PyObject *kwargs) {
 static PyObject *tok_encode_list(TokObject *self, PyObject *args) {
     Py_buffer view;
     if (!PyArg_ParseTuple(args, "y*", &view)) return NULL;
-    tsimd_token_sequence_t seq;
-    memset(&seq, 0, sizeof seq);
+    size_t count = 0;
     int rc;
     Py_BEGIN_ALLOW_THREADS
     pthread_mutex_lock(&self->mu);
-    rc = tsimd_tokenizer_encode_parallel(self->tok,
-                                         (const uint8_t *)view.buf,
-                                         (size_t)view.len, 0, &seq);
+    rc = tok_scratch_reserve(self, (size_t)view.len);
+    if (rc == 0)
+        rc = tsimd_tokenizer_encode_parallel_into(
+            self->tok, (const uint8_t *)view.buf, (size_t)view.len, 0,
+            self->scratch, self->scratch_cap, &count);
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
@@ -96,35 +116,31 @@ static PyObject *tok_encode_list(TokObject *self, PyObject *args) {
         PyErr_SetString(TokError, "encode failed");
         return NULL;
     }
-    PyObject *list = PyList_New((Py_ssize_t)seq.count);
-    if (!list) {
-        tsimd_token_sequence_free(&seq);
-        return NULL;
-    }
-    for (size_t i = 0; i < seq.count; i++) {
-        PyObject *v = PyLong_FromUnsignedLong(seq.ids[i]);
+    PyObject *list = PyList_New((Py_ssize_t)count);
+    if (!list) return NULL;
+    for (size_t i = 0; i < count; i++) {
+        PyObject *v = PyLong_FromUnsignedLong(self->scratch[i]);
         if (!v || PyList_SetItem(list, (Py_ssize_t)i, v) != 0) {
             Py_XDECREF(v);
             Py_DECREF(list);
-            tsimd_token_sequence_free(&seq);
             return NULL;
         }
     }
-    tsimd_token_sequence_free(&seq);
     return list;
 }
 
 static PyObject *tok_encode_bytes(TokObject *self, PyObject *args) {
     Py_buffer view;
     if (!PyArg_ParseTuple(args, "y*", &view)) return NULL;
-    tsimd_token_sequence_t seq;
-    memset(&seq, 0, sizeof seq);
+    size_t count = 0;
     int rc;
     Py_BEGIN_ALLOW_THREADS
     pthread_mutex_lock(&self->mu);
-    rc = tsimd_tokenizer_encode_parallel(self->tok,
-                                         (const uint8_t *)view.buf,
-                                         (size_t)view.len, 0, &seq);
+    rc = tok_scratch_reserve(self, (size_t)view.len);
+    if (rc == 0)
+        rc = tsimd_tokenizer_encode_parallel_into(
+            self->tok, (const uint8_t *)view.buf, (size_t)view.len, 0,
+            self->scratch, self->scratch_cap, &count);
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
@@ -132,10 +148,7 @@ static PyObject *tok_encode_bytes(TokObject *self, PyObject *args) {
         PyErr_SetString(TokError, "encode failed");
         return NULL;
     }
-    PyObject *out = PyBytes_FromStringAndSize((const char *)seq.ids,
-                                              (Py_ssize_t)seq.count * 4);
-    tsimd_token_sequence_free(&seq);
-    return out;
+    return tok_scratch_result(self, count);
 }
 
 static PyObject *tok_encode_threads(TokObject *self, PyObject *args) {
@@ -411,6 +424,8 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
         return NULL;
     }
     obj->tok = tok;
+    obj->scratch = NULL;
+    obj->scratch_cap = 0;
     pthread_mutex_init(&obj->mu, NULL);
     return (PyObject *)obj;
 }
