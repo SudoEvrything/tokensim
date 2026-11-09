@@ -56,6 +56,7 @@ def main():
     t0 = time.perf_counter()
     with open(corpus, "rb") as f, mmap.mmap(f.fileno(), 0,
                                             access=mmap.ACCESS_READ) as mm:
+        mm.madvise(mmap.MADV_SEQUENTIAL)
         mv = memoryview(mm)
         for off in range(0, fsz, doc_bytes):
             n = min(fsz - off, doc_bytes)

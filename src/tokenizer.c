@@ -118,6 +118,35 @@ static int tiktoken_scheme_ok(tsimd_pretok_scheme_t sch, size_t vocab_size) {
     return 0;
 }
 
+static void decode_tables_build(tsimd_tokenizer_t *t) {
+    size_t max_id = 0;
+    for (size_t s = 0; s < t->added_count; s++)
+        if (t->added[s].id > max_id) max_id = t->added[s].id;
+    if (t->added_count) {
+        t->added_by_id = calloc(max_id + 1, sizeof(tsimd_added_token_t *));
+        if (t->added_by_id) {
+            t->added_by_id_n = max_id + 1;
+            for (size_t s = 0; s < t->added_count; s++)
+                t->added_by_id[t->added[s].id] = &t->added[s];
+        }
+    }
+    if (t->scheme == TSIMD_PRETOK_SPM && t->vocab.spm_control_n) {
+        uint32_t mx = 0;
+        for (uint32_t k = 0; k < t->vocab.spm_control_n; k++)
+            if (t->vocab.spm_control_ids[k] > mx)
+                mx = t->vocab.spm_control_ids[k];
+        size_t bytes = (size_t)mx / 8 + 1;
+        t->spm_ctl_flags = calloc(bytes, 1);
+        if (t->spm_ctl_flags) {
+            t->spm_ctl_n = bytes;
+            for (uint32_t k = 0; k < t->vocab.spm_control_n; k++) {
+                uint32_t id = t->vocab.spm_control_ids[k];
+                t->spm_ctl_flags[id >> 3] |= (uint8_t)(1u << (id & 7));
+            }
+        }
+    }
+}
+
 int tsimd_tokenizer_load_model(tsimd_tokenizer_t *t, tsimd_model_format_t fmt,
                               const char *path1, const char *path2,
                               tsimd_pretok_scheme_t *scheme,
@@ -202,6 +231,7 @@ int tsimd_tokenizer_load_model(tsimd_tokenizer_t *t, tsimd_model_format_t fmt,
     }
 out:
     if (scheme) *scheme = det;
+    if (rc == 0) decode_tables_build(t);
     if (rc != 0) tsimd_tokenizer_free(t);
     return rc;
 }
@@ -270,6 +300,8 @@ void tsimd_tokenizer_free(tsimd_tokenizer_t *t) {
     spm_caches_free(t);
     tsimd_pretok_cache_free(&t->cache);
     tsimd_pretok_cache_free(&t->memo_cache);
+    free(t->added_by_id);
+    free(t->spm_ctl_flags);
     free_added(t);
     memset(t, 0, sizeof(*t));
 }
@@ -1811,19 +1843,17 @@ int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
     size_t total = 0;
     for (size_t i = 0; i < n; i++) {
         uint32_t id = ids[i];
-        const tsimd_added_token_t *at0 = NULL;
-        for (size_t s = 0; s < t->added_count; s++)
-            if (t->added[s].id == id) { at0 = &t->added[s]; break; }
+        const tsimd_added_token_t *at0 =
+            id < t->added_by_id_n ? t->added_by_id[id] : NULL;
         if (at0) {
             if (!at0->is_special || !skip_special) total += at0->length;
             continue;
         }
         if (id < t->vocab.vocab_size) {
             if (t->scheme == TSIMD_PRETOK_SPM) {
-                int ctl = 0;
-                for (uint32_t k = 0; k < t->vocab.spm_control_n; k++)
-                    if (t->vocab.spm_control_ids[k] == id) { ctl = 1; break; }
-                if (ctl) continue;
+                if (id < t->spm_ctl_n * 8 &&
+                    (t->spm_ctl_flags[id >> 3] >> (id & 7)) & 1)
+                    continue;
                 if (id == t->vocab.spm_unk_id) {
                     total += t->vocab.spm_unk_surface_len;
                     continue;
@@ -1839,10 +1869,15 @@ int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
     uint8_t *buf = tsimd_xmalloc(total);
     size_t off = 0;
     for (size_t i = 0; i < n; i++) {
+        size_t pf = i + 16;
+        if (pf < n && ids[pf] < t->vocab.vocab_size) {
+            uint32_t pb = t->vocab.offsets[ids[pf]];
+            __builtin_prefetch(t->vocab.bytes + pb);
+            __builtin_prefetch(t->vocab.bytes + pb + 64);
+        }
         uint32_t id = ids[i];
-        const tsimd_added_token_t *at1 = NULL;
-        for (size_t s = 0; s < t->added_count; s++)
-            if (t->added[s].id == id) { at1 = &t->added[s]; break; }
+        const tsimd_added_token_t *at1 =
+            id < t->added_by_id_n ? t->added_by_id[id] : NULL;
         if (at1) {
             if (!at1->is_special || !skip_special) {
                 memcpy(buf + off, at1->text, at1->length);
@@ -1852,10 +1887,9 @@ int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
         }
         if (id < t->vocab.vocab_size) {
             if (t->scheme == TSIMD_PRETOK_SPM) {
-                int ctl = 0;
-                for (uint32_t k = 0; k < t->vocab.spm_control_n; k++)
-                    if (t->vocab.spm_control_ids[k] == id) { ctl = 1; break; }
-                if (ctl) continue;
+                if (id < t->spm_ctl_n * 8 &&
+                    (t->spm_ctl_flags[id >> 3] >> (id & 7)) & 1)
+                    continue;
                 if (id == t->vocab.spm_unk_id) {
                     memcpy(buf + off, t->vocab.spm_unk_surface,
                            t->vocab.spm_unk_surface_len);

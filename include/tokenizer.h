@@ -66,6 +66,10 @@ typedef struct tsimd_tokenizer {
     int norm;
     tsimd_added_token_t *added;
     size_t added_count;
+    tsimd_added_token_t **added_by_id;
+    size_t added_by_id_n;
+    uint8_t *spm_ctl_flags;
+    size_t spm_ctl_n;
     size_t cache_bytes;
 
     uint16_t added_head[256];
