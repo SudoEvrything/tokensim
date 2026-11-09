@@ -57,6 +57,7 @@ extern "C" {
         n_bytes: *mut usize,
     ) -> c_int;
     fn tsimd_sys_free(p: *mut c_void);
+    fn tsimd_default_threads() -> c_int;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,12 +122,14 @@ impl Tokenizer {
                 path.as_ptr(),
                 fmt.as_ptr(),
                 sch.as_ref().map_or(ptr::null(), |s| s.as_ptr()),
-                err.as_mut_ptr(),
+                err.as_mut_ptr() as *mut c_char,
                 err.len(),
             )
         };
         if handle.is_null() {
-            let msg = unsafe { CStr::from_ptr(err.as_ptr()) }
+            let msg = unsafe {
+                CStr::from_ptr(err.as_ptr() as *const c_char)
+            }
                 .to_string_lossy()
                 .into_owned();
             return Err(if msg.is_empty() {
@@ -143,7 +146,7 @@ impl Tokenizer {
     }
 
     pub fn encode(&mut self, data: &[u8]) -> Result<&[u32], String> {
-        self.encode_threads(data, 1)
+        self.encode_threads(data, 0)
     }
 
     pub fn encode_threads(&mut self, data: &[u8], threads: usize) -> Result<&[u32], String> {
@@ -156,7 +159,7 @@ impl Tokenizer {
                 self.handle,
                 data.as_ptr(),
                 data.len(),
-                threads.max(1) as c_int,
+                threads.min(c_int::MAX as usize) as c_int,
             )
         };
         if rc != 0 {
@@ -182,7 +185,7 @@ impl Tokenizer {
                 self.handle,
                 data.as_ptr(),
                 data.len(),
-                threads.max(1) as c_int,
+                threads.min(c_int::MAX as usize) as c_int,
                 out.as_mut_ptr(),
                 out.len(),
                 &mut n,
@@ -249,6 +252,11 @@ pub fn version() -> &'static str {
     unsafe { CStr::from_ptr(p) }.to_str().unwrap_or("")
 }
 
+pub fn default_threads() -> usize {
+    let n = unsafe { tsimd_default_threads() };
+    if n < 1 { 1 } else { n as usize }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,6 +312,28 @@ mod tests {
         assert!(!ids.is_empty());
         let text = tok.decode(&ids).unwrap();
         assert_eq!(text, b"Hello world, this is a test.");
+    }
+
+    #[test]
+    fn auto_threads_match_sequential_and_explicit() {
+        if !models_available() { eprintln!("skip: no models dir"); return; }
+        assert!(default_threads() >= 1);
+        let mut tok = Tokenizer::open(&model("t5_spiece.model"), Format::SentencePiece, None)
+            .expect("load t5");
+        let big = b"The quick brown fox jumps over the lazy dog. ".repeat(20000);
+        let small = b"Hello, world!";
+        let b_seq: Vec<u32> = tok.encode_threads(small, 1).unwrap().to_vec();
+        let b_auto: Vec<u32> = tok.encode(small).unwrap().to_vec();
+        assert_eq!(b_seq, b_auto);
+        let a: Vec<u32> = tok.encode(&big).unwrap().to_vec();
+        let one: Vec<u32> = tok.encode_threads(&big, 1).unwrap().to_vec();
+        let four: Vec<u32> = tok.encode_threads(&big, 4).unwrap().to_vec();
+        assert_eq!(a, one);
+        assert_eq!(a, four);
+        let mut out = vec![0u32; tok.encode_bound(big.len())];
+        let n = tok.encode_into(&big, &mut out, 0).unwrap();
+        assert_eq!(n, a.len());
+        assert_eq!(&out[..n], &a[..]);
     }
 
     #[test]

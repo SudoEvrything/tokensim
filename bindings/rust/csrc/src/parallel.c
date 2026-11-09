@@ -2205,20 +2205,37 @@ void tsimd_tokenizer_cache_stats(const tsimd_tokenizer_t *t,
     if (inserts) *inserts = ins;
 }
 
+int tsimd_default_threads(void) {
+#if defined(__linux__)
+    mask_save_once();
+    if (atomic_load_explicit(&g_saved_mask_state, memory_order_acquire) == 2) {
+        int n = CPU_COUNT(&g_saved_mask);
+        if (n >= 1) return n > TSIMD_POOL_MAX ? TSIMD_POOL_MAX : n;
+    }
+#endif
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    if (n < 1) return 1;
+    return n > TSIMD_POOL_MAX ? TSIMD_POOL_MAX : (int)n;
+}
+
 static long physical_cores(void) {
     FILE *f = fopen("/proc/cpuinfo", "r");
     if (!f) return sysconf(_SC_NPROCESSORS_ONLN);
     char line[256];
 
-    static uint64_t seen[64];
+    uint64_t seen[8] = {0};
     long n = 0;
     long phys = -1, core = -1;
     while (fgets(line, sizeof(line), f)) {
         if (sscanf(line, "physical id : %ld", &phys) == 1) continue;
         if (sscanf(line, "core id : %ld", &core) != 1) continue;
-        uint64_t h = (uint64_t)(phys * 64 + core) % 64;
-        if (!(seen[h >> 6] & (1ULL << (h & 63)))) {
-            seen[h >> 6] |= 1ULL << (h & 63);
+        long key = phys * 64 + core;
+        if (key < 0 || key >= 512) {
+            n++;
+            continue;
+        }
+        if (!(seen[key >> 6] & (1ULL << (key & 63)))) {
+            seen[key >> 6] |= 1ULL << (key & 63);
             n++;
         }
     }
@@ -2584,6 +2601,7 @@ int tsimd_tokenizer_encode_parallel(tsimd_tokenizer_t *t,
     tsimd_serve_env_refresh();
     tsimd_pcache_upgrade_for(t, len);
     tsimd_memo_size_for(t, len);
+    if (max_threads == 0) max_threads = tsimd_default_threads();
     if (max_threads > TSIMD_POOL_MAX) max_threads = TSIMD_POOL_MAX;
     if (max_threads <= 1 || len < TSIMD_PAR_MIN_LEN)
         return tsimd_tokenizer_encode(t, data, len, out);
@@ -2618,6 +2636,7 @@ int tsimd_tokenizer_encode_parallel_into(tsimd_tokenizer_t *t,
     if (!buf || !count) return -1;
     if (cap < tsimd_tokenizer_encode_bound(t, len)) return -1;
     *count = 0;
+    if (max_threads == 0) max_threads = tsimd_default_threads();
     if (max_threads > TSIMD_POOL_MAX) max_threads = TSIMD_POOL_MAX;
     if (max_threads <= 1 || len < TSIMD_PAR_MIN_LEN)
         return tsimd_tokenizer_encode_into_raw(t, data, len, buf, cap, count);

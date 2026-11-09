@@ -271,7 +271,7 @@ if(BUILD_TESTING)
   endif()
   if(EXISTS ${CMAKE_SOURCE_DIR}/models/reference
       AND EXISTS ${CMAKE_SOURCE_DIR}/testdata/owt.txt)
-    foreach(t test_batch_fused test_batch_nfc test_batch_scale test_bpe_heap_oracle test_bpe_path_agreement test_bpe_seam test_byte_ids_fallback test_cache_stress test_decode test_dual_cursor test_encode_into test_gemma_added_par test_gemma_metaspace test_giant_word_cliff test_ignore_merges test_kimi test_kimi_par_race test_merge_id_probe test_nemotron test_nfc test_nfc_reuse test_parallel_nfc test_pcache_upgrade test_pin_fault test_qwen3_nfc_speed test_shared_fallback test_shared_publish test_short_skip test_spm_cache test_spm_integration test_spm_par_degenerate test_spm_tie_rule test_spm_tiebreak test_spm_word_seam test_sys test_unigram test_unigram_chunk test_unigram_memo_corpus test_unigram_par test_vocabulary test_wholepiece_sim)
+    foreach(t test_batch_fused test_batch_nfc test_batch_scale test_bpe_heap_oracle test_bpe_path_agreement test_bpe_seam test_byte_ids_fallback test_cache_stress test_decode test_dual_cursor test_encode_into test_gemma_added_par test_gemma_metaspace test_giant_word_cliff test_glm4_cjk test_ignore_merges test_kimi test_kimi_par_race test_merge_id_probe test_nemotron test_nfc test_nfc_reuse test_parallel_nfc test_pcache_upgrade test_pin_fault test_qwen3_nfc_speed test_shared_fallback test_shared_publish test_short_skip test_spm_cache test_spm_integration test_spm_par_degenerate test_spm_tie_rule test_spm_tiebreak test_spm_word_seam test_sys test_unigram test_unigram_chunk test_unigram_memo_corpus test_unigram_par test_vocabulary test_wholepiece_sim)
       add_executable(${t} tests/${t}.c tests/util.c)
       target_link_libraries(${t} PRIVATE tokensim)
       add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
@@ -283,6 +283,16 @@ if(BUILD_TESTING)
         add_test(NAME ${t} COMMAND ${t} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
       endforeach()
     endif()
+  endif()
+
+  if(TARGET tsimd_python
+      AND EXISTS ${CMAKE_SOURCE_DIR}/models/reference
+      AND EXISTS ${CMAKE_SOURCE_DIR}/testdata/owt.txt)
+    add_test(NAME python_bindings
+             COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} ${Python3_EXECUTABLE}
+                     ${CMAKE_SOURCE_DIR}/bindings/python/test_tsimd.py)
+    set_tests_properties(python_bindings PROPERTIES
+             ENVIRONMENT "TOKENSIMD_BUILD_DIR=${CMAKE_BINARY_DIR};TOKENSIMD_ROOT=${CMAKE_SOURCE_DIR}")
   endif()
 
   if(EXISTS ${CMAKE_SOURCE_DIR}/models/reference

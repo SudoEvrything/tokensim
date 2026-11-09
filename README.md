@@ -6,9 +6,9 @@ blocks, with parallel output equal to sequential output at any
 thread count, proven by test.
 
 The fastest family (o200k)
-encodes at 585 MB/s single-threaded and 2703 MB/s with a 6-thread
+encodes at 571 MB/s single-threaded and 2709 MB/s with a 6-thread
 parallel call, against tiktoken's 32.5 MB/s on the same input.
-That is **18x per call, 83x parallel**, byte-identical output (the
+That is **17.8x per call, 84x parallel**, byte-identical output (the
 very first call pays one-time cache warm-up: 259 MB/s).
 
 > **Documentation:** [BENCHMARKS.md](BENCHMARKS.md) - the numbers ·
@@ -54,7 +54,7 @@ same three lines:
 ```sh
 git clone https://github.com/SudoEvrything/tokensim && cd tokensim
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-ctest --test-dir build            # 41 tests without local artifacts
+ctest --test-dir build            # 42 tests without local artifacts
 ```
 
 Then call it. From the command line:
@@ -148,7 +148,8 @@ cross-arch under emulation.
 | --- | --- | --- |
 | `tiktoken` | one `.model` vocab file | the OpenAI tiktoken format: one base64 token per line, ranks from line order (the explicit-rank variant is also read) |
 | `gpt2` | `encoder.json` + `vocab.bpe` | the classic OpenAI GPT-2 format; the byte-unicode alphabet is decoded at load; merge ranks from the file order |
-| `tokenizer_json` | `tokenizer.json` | the Hugging Face format; BPE models with byte-level pre-tokenizers; the pre-tokenizer must match a known scheme exactly (GPT-2 / cl100k / o200k) or the load is rejected; `added_tokens` load with their explicit ids |
+| `tokenizer_json` | `tokenizer.json` | the Hugging Face format; BPE models with byte-level pre-tokenizers; the pre-tokenizer must match a registered pattern (GPT-2 / cl100k / o200k / qwen / nemo / MiniMax) or the load is rejected; `added_tokens` load with their explicit ids |
+| `sentencepiece` | one `.model` protobuf | the sentencepiece BPE and unigram models (Mistral, T5, XLM-R) |
 
 Unsupported configurations (normalizers, non-BPE models, any
 pre-tokenizer pattern outside the supported set) are rejected with
@@ -169,6 +170,7 @@ tiktoken file round out the fourteen supported families.
 | `o200k` | GPT-4o/o200k_base, Llama-4, MiniMax-M2 (the same pattern family) | SIMD mask algebra + fused serve path |
 | `kimi` | moonshot's tokenization_kimi pattern | window-batch mask algebra |
 | `deepseek` / `qwen25` / `nemo` / `gpt2d` | the JSON families | per-scheme mask fill + serve |
+| `spm` / `gem4` | the sentencepiece models, Gemma and GLM (the cl100k-style pattern) | metaspace / unigram engines + the scalar serve |
 
 Each family's quirks are matched exactly: o200k's case-phase
 transition with contractions glued to the run, cl100k's digit
@@ -202,8 +204,8 @@ inputs.
 - **The Unicode normalizer** is proven by a 5,328-case sweep
   against the Unicode reference, 0 diffs.
 
-The result is 98 tests green and every family byte-exact against
-its reference.
+The result is 99 tests green (100 with the Python binding row)
+and every family byte-exact against its reference.
 
 ## Bindings and packaging
 
@@ -214,18 +216,24 @@ on install:
 ```python
 import tokensim
 tok = tokensim.load("/path/cl100k_base.tiktoken", "tiktoken", "cl100k")
-ids = tok.encode(b"hello world")                     # GIL released
-ids = tok.encode_threads(b"hello world", threads=8)  # == encode()
-data = tok.encode_bytes(b"hello world")              # uint32 LE bytes
-tok.decode(ids).decode()                             # round-trip
-n = tok.encode_bound(len(data))                      # out-buffer bound
+ids = tok.encode(b"hello world")   # the automatic thread count
+ids = tok.encode_threads(b"hello world", 8)   # the explicit count
+lst = tok.encode_list(b"hello world")         # the id list
+data = tok.encode(b"hello world")             # uint32 LE bytes
+tok.decode(data).decode()                     # round-trip
+tok.decode(lst)                               # the list form works too
+n = tok.encode_bound(len(b"hello world"))     # out-buffer bound
+print(tokensim.default_threads())             # the automatic count
 ```
 
-`encode` takes bytes and returns a list of ids; `encode_threads` is
-byte-identical to `encode` for any thread count; `decode` reverses
-the encode (`skip_special=True` drops the special ids). The module
-imports as `tokensim`; the historic `import tsimd` keeps working as
-an alias of the same objects.
+`encode` takes bytes and returns the ids as uint32 little-endian
+bytes; `encode_list` returns the Python list; both run the automatic
+thread count when the input is large enough to pay for it.
+`encode_threads(data, n)` forces the count (`1` = sequential).
+`decode` accepts the bytes form or the list (`skip_special=True`
+drops the special ids). The module imports as `tokensim`; the
+historic `import tsimd` keeps working as an alias of the same
+objects.
 
 **Rust** - install with `cargo add tokensim`; the crate vendors the
 C sources and builds them with cc (no cmake, no network):
@@ -253,7 +261,7 @@ include(FetchContent)
 FetchContent_Declare(
   tokensim
   GIT_REPOSITORY https://github.com/OWNER/tokensim
-  GIT_TAG        v1.0.0
+  GIT_TAG        v1.0.3
 )
 FetchContent_MakeAvailable(tokensim)
 target_link_libraries(myapp PRIVATE tokensim)
@@ -262,7 +270,7 @@ target_link_libraries(myapp PRIVATE tokensim)
 or pkg-config (after `cmake --install build --prefix ~/.local`):
 
 ```sh
-cc myapp.c $(pkg-config --cflags --libs tokensim) -o myapp
+PKG_CONFIG_PATH=~/.local/lib/pkgconfig   cc myapp.c $(pkg-config --cflags --libs tokensim) -o myapp
 ```
 
 The library builds on x86-64 and aarch64. On x86-64 the baseline is

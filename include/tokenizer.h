@@ -158,6 +158,8 @@ int tsimd_tokenizer_encode_parallel(tsimd_tokenizer_t *t,
                                    int max_threads,
                                    tsimd_token_sequence_t *out);
 
+int tsimd_default_threads(void);
+
 int tsimd_tokenizer_encode_whole_chain_par(tsimd_tokenizer_t *t,
                                           const uint8_t *data, size_t len,
                                           int threads,

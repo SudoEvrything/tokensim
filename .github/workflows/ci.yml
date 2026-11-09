@@ -36,6 +36,14 @@ jobs:
         run: |
           B=build; [ "${{ matrix.compiler }}" = "clang" ] && B=build-clang
           cd $B && ctest -R "test_unicode|test_json|test_bpe_short|test_cls_table|test_scheme_guard|test_avx512_probe|test_spm_tie_rule|test_decode" --output-on-failure
+      - name: test count floor
+        run: |
+          B=build; [ "${{ matrix.compiler }}" = "clang" ] && B=build-clang
+          N=$(cd $B && ctest -N | sed -n 's/Total Tests: //p')
+          echo "registered tests: $N"
+          [ "$N" -ge 40 ] || { echo "expected at least 40 registered tests"; exit 1; }
+      - name: cargo test
+        run: cargo test --release --manifest-path bindings/rust/Cargo.toml
 
   build-test-arm64:
     runs-on: ubuntu-24.04-arm

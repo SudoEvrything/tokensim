@@ -24,7 +24,7 @@
 int main(int argc, char **argv) {
     const char *special_list = NULL;
     const char *format = "tiktoken";
-    int n_threads = 1;
+    int n_threads = 0;
     int use_mmap = 1;
     int argi = 1;
     while (argi < argc && strncmp(argv[argi], "--", 2) == 0) {
@@ -244,11 +244,6 @@ int main(int argc, char **argv) {
 
     tsimd_token_sequence_t seq;
     if (n_threads != 1) {
-        if (n_threads == 0) {
-            long nproc = sysconf(_SC_NPROCESSORS_ONLN);
-            if (nproc < 1) nproc = 1;
-            n_threads = (int)nproc;
-        }
         if (tsimd_tokenizer_encode_parallel(&t, in.data, in.length,
                                            n_threads, &seq) != 0) {
             fprintf(stderr, "tokenization failed\n");

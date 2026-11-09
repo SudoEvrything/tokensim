@@ -1,5 +1,7 @@
 #include "tokensimd_sys.h"
 
+#include "tokenizer.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +33,7 @@ int main(void) {
           "version string");
 
     const char *text = "Hello world, this is a test.";
+    int d_threads0 = tsimd_default_threads();
     uint32_t *ids = NULL;
     size_t n_ids = 0;
     check(tsimd_sys_encode(h, (const uint8_t *)text, strlen(text), 1, &ids,
@@ -45,9 +48,33 @@ int main(void) {
           "decode round trip");
     tsimd_sys_free(bytes);
 
+    size_t n_own = 0;
+    const uint32_t *own = NULL;
+    check(tsimd_sys_encode_own(h, (const uint8_t *)text, strlen(text), 1) == 0,
+          "encode own");
+    own = tsimd_sys_ids(h, &n_own);
+    check(own != NULL && n_own == n_ids &&
+              memcmp(own, ids, n_ids * sizeof(uint32_t)) == 0,
+          "encode own ids equal the sequential ids");
+    check(tsimd_sys_encode_own(h, (const uint8_t *)text, strlen(text), 4) == 0,
+          "encode own parallel");
+    own = tsimd_sys_ids(h, &n_own);
+    check(own != NULL && n_own == n_ids &&
+              memcmp(own, ids, n_ids * sizeof(uint32_t)) == 0,
+          "encode own parallel ids equal the sequential ids");
+    check(tsimd_sys_encode_own(h, (const uint8_t *)text, strlen(text), 0) == 0,
+          "encode own automatic");
+    own = tsimd_sys_ids(h, &n_own);
+    check(own != NULL && n_own == n_ids &&
+              memcmp(own, ids, n_ids * sizeof(uint32_t)) == 0,
+          "encode own automatic ids equal the sequential ids");
+    check(tsimd_sys_encode_own(h, (const uint8_t *)"", 0, 1) == 0,
+          "encode own empty");
+    own = tsimd_sys_ids(h, &n_own);
+    check(n_own == 0, "encode own empty id count");
+
     uint32_t *ids4 = NULL;
-    size_t n4 = 0;
-    check(tsimd_sys_encode(h, (const uint8_t *)text, strlen(text), 4, &ids4,
+    size_t n4 = 0;    check(tsimd_sys_encode(h, (const uint8_t *)text, strlen(text), 4, &ids4,
                            &n4) == 0,
           "encode parallel");
     check(n4 == n_ids && memcmp(ids4, ids, n_ids * sizeof(uint32_t)) == 0,
@@ -92,6 +119,48 @@ int main(void) {
     check(tsimd_sys_encode_into(h, (const uint8_t *)text, strlen(text), 4,
                                 into, 1, &n_into) != 0,
           "encode into parallel must fail on a short buffer");
+    check(tsimd_default_threads() >= 1, "default thread count");
+    memset(into, 0, (bound ? bound : 1) * sizeof(uint32_t));
+    check(tsimd_sys_encode_into(h, (const uint8_t *)text, strlen(text), 0,
+                                into, bound, &n_into) == 0 && n_into == n_ids,
+          "encode into with automatic threads");
+    check(memcmp(into, ids, n_ids * sizeof(uint32_t)) == 0,
+          "automatic-thread ids equal the sequential ids");
+    uint32_t *ids0 = NULL;
+    size_t n0 = 0;
+    check(tsimd_sys_encode(h, (const uint8_t *)text, strlen(text), 0, &ids0,
+                           &n0) == 0 &&
+              n0 == n_ids && memcmp(ids0, ids, n_ids * sizeof(uint32_t)) == 0,
+          "automatic-thread encode ids equal the sequential ids");
+    tsimd_sys_free(ids0);
+    {
+        const char *unit = "The quick brown fox jumps over the lazy dog. ";
+        size_t ul = strlen(unit);
+        size_t bl = (1u << 19) + 7;
+        uint8_t *big = malloc(bl);
+        for (size_t i = 0; i < bl; i++) big[i] = (uint8_t)unit[i % ul];
+        uint32_t *b1 = NULL, *b0 = NULL, *b6 = NULL;
+        size_t n1b = 0, n0b = 0, n6b = 0;
+        check(tsimd_sys_encode(h, big, bl, 1, &b1, &n1b) == 0,
+              "big payload sequential");
+        check(tsimd_sys_encode(h, big, bl, 0, &b0, &n0b) == 0,
+              "big payload automatic");
+        check(tsimd_sys_encode(h, big, bl, 6, &b6, &n6b) == 0,
+              "big payload 6 threads");
+        check(n1b == n0b && n0b == n6b && n1b > 0 &&
+                  memcmp(b1, b0, n1b * sizeof(uint32_t)) == 0 &&
+                  memcmp(b1, b6, n1b * sizeof(uint32_t)) == 0,
+              "big auto and 6-thread ids equal the sequential ids");
+        {
+            int d2 = tsimd_default_threads();
+            check(d_threads0 < 2 || d2 == d_threads0,
+                  "default thread count is stable across a pinned call");
+        }
+        tsimd_sys_free(b1);
+        tsimd_sys_free(b0);
+        tsimd_sys_free(b6);
+        free(big);
+    }
     free(into);
     tsimd_sys_free(ids);
     tsimd_sys_close(h);

@@ -1,6 +1,7 @@
 #include "tokenizer.h"
 #include "pretokenizer.h"
 #include "unicode.h"
+#include "../src/pretokenizer/internal.h"
 
 #include "../src/model_internal.h"
 
@@ -39,6 +40,13 @@ static void naive_bpe_span(const uint8_t *bytes, uint32_t len) {
     for (uint32_t i = 0; i < len; i++)
         ids[i] = tok.vocab.byte_ids[bytes[i]];
     uint32_t n = len;
+    if (tok.vocab.ignore_merges && len > 0 && len <= 512) {
+        uint32_t whole = tsimd_vocab_find(&tok.vocab, bytes, len);
+        if (whole != UINT32_MAX) {
+            if (ref_n < 4096) ref_ids[ref_n++] = whole;
+            return;
+        }
+    }
     while (n > 1) {
         uint32_t best = UINT32_MAX, best_pos = 0, best_id = 0;
         for (uint32_t k = 0; k + 1 < n; k++) {
@@ -313,7 +321,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             } else {
                 tsimd_span_array_t sp;
                 tsimd_span_array_init(&sp);
-                if (tsimd_pretokenize(sch, gap, glen, &sp) != 0) {
+                int prc = sch == TSIMD_PRETOK_GEM4
+                              ? tsimd_pretokenize_simd(sch, gap, glen, &sp)
+                              : tsimd_pretokenize(sch, gap, glen, &sp);
+                if (prc != 0) {
                     tsimd_span_array_free(&sp);
                     free(nd);
                     return 0;

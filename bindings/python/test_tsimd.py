@@ -1,6 +1,9 @@
 import sys
 import os
 
+BUILD = os.environ.get("TOKENSIMD_BUILD_DIR")
+if BUILD:
+    sys.path.insert(0, BUILD)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import tokensim
@@ -68,6 +71,106 @@ def fast_path_check(tok, data):
         return False
     except tokensim.Error:
         pass
+    return True
+
+def auto_default_check(tok, data, big):
+    if tokensim.default_threads() < 1:
+        print("default_threads < 1")
+        return False
+    if tok.encode(data) != tok.encode_threads(data, 1):
+        print("auto default differs from 1t")
+        return False
+    if tok.encode(big) != tok.encode_threads(big, 1):
+        print("auto default differs from 1t on a big payload")
+        return False
+    if tok.encode(big) != tok.encode_threads(big, 6):
+        print("auto default differs from 6t on a big payload")
+        return False
+    if tok(big) != tok.encode(big):
+        print("__call__ differs from encode on a big payload")
+        return False
+    import array
+    a = array.array("I")
+    a.frombytes(tok.encode_threads(big))
+    if list(a) != tok.encode_list(big):
+        print("default encode_threads differs from encode_list on a big payload")
+        return False
+    return True
+
+def binding_error_check(tok, data, model_path):
+    try:
+        tok(data, bad=1)
+        print("__call__ accepted keyword arguments")
+        return False
+    except TypeError:
+        pass
+    try:
+        tok.encode("a string not bytes")
+        print("encode accepted a str")
+        return False
+    except TypeError:
+        pass
+    try:
+        tok.decode("not a list or buffer")
+        print("decode accepted a str")
+        return False
+    except TypeError:
+        pass
+    ids_bytes = tok.encode(data)
+    if tok.decode(list(tok.encode_list(data)), True) != tok.decode(ids_bytes,
+                                                                   False):
+        print("skip_special decode differs on special-free input")
+        return False
+    try:
+        tsimd.load("/nonexistent/model.json")
+        print("load accepted a missing model")
+        return False
+    except tsimd.Error:
+        pass
+    try:
+        tsimd.load(model_path, "nonsense")
+        print("load accepted an unknown format")
+        return False
+    except ValueError:
+        pass
+    try:
+        tsimd.load(model_path, "tiktoken", "nonsense")
+        print("load accepted an unknown scheme")
+        return False
+    except ValueError:
+        pass
+    try:
+        tok.encode_threads_into(data, bytes(64), 6)
+        print("encode_threads_into accepted a read-only buffer")
+        return False
+    except (tsimd.Error, TypeError, BufferError):
+        pass
+    return True
+
+def thread_safety_check(tok, big):
+    import threading
+    expect = tok.encode(big)
+    results = []
+    lock = threading.Lock()
+
+    def work():
+        out = [tok.encode(big) for _ in range(3)]
+        with lock:
+            results.append(out)
+
+    ts = [threading.Thread(target=work) for _ in range(4)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    if len(results) != 4:
+        print("thread check lost results")
+        return False
+    for out in results:
+        for raw in out:
+            if raw != expect:
+                print("concurrent encode ids differ")
+                return False
     return True
 
 def encode_bytes_check(tok, data):
@@ -178,6 +281,23 @@ def main():
     else:
         fails += 1
         print("fast-path default FAIL")
+    if auto_default_check(tok_b, TEXTS[0].encode("utf-8") * 40,
+                          (TEXTS[0] + " ") .encode("utf-8") * 20000):
+        print("automatic-thread default OK")
+    else:
+        fails += 1
+        print("automatic-thread default FAIL")
+    if binding_error_check(tok_b, TEXTS[0].encode("utf-8") * 40,
+                           ROOT + "/models/reference/deepseek_tokenizer.json"):
+        print("binding error paths OK")
+    else:
+        fails += 1
+        print("binding error paths FAIL")
+    if thread_safety_check(tok_b, (TEXTS[0] + " ").encode("utf-8") * 20000):
+        print("concurrent encode thread safety OK")
+    else:
+        fails += 1
+        print("concurrent encode thread safety FAIL")
     if encode_bytes_check(tok_b, TEXTS[0].encode("utf-8") * 40):
         print("encode_bytes/threads parity OK")
     else:

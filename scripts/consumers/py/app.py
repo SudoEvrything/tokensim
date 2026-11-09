@@ -1,36 +1,110 @@
-import tokensim
-import time, resource
+import os
+import sys
+import time
 
-t = tokensim.tokenizer("/home/raising-reuel/tokenizer/models/cl100k_base.tiktoken",
-                       "tiktoken", "cl100k")
-data = open("/home/raising-reuel/tokenizer/testdata/owt.txt", "rb").read()
-print(f"input: {len(data) // (1024*1024)} MB")
-print(f"rss after load+read: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")
-mb = len(data) / 1e6
+from tokensim import tokenizer, default_threads
 
-t0 = time.perf_counter()
-raw = t(data)
-t1 = time.perf_counter()
-print(f"1t tok(data): {mb/(t1-t0):.1f} MB/s ({len(raw)//4} ids)")
+PRIME = 0x100000001B3
+MASK = (1 << 64) - 1
+FNV0 = 0xCBF29CE484222325
 
-t0 = time.perf_counter()
-raw = t.encode(data)
-t1 = time.perf_counter()
-print(f"1t encode warm: {mb/(t1-t0):.1f} MB/s ({len(raw)//4} ids)")
+PROMPTS = [
+    "Summarize the following article in one sentence.",
+    "def fib(n):\n    return n if n < 2 else fib(n - 1) + fib(n - 2)\n",
+    "The quick brown fox jumps over the lazy dog.",
+    "Bonjour, comment allez-vous aujourd'hui ?",
+    "Explain the difference between a list and a tuple in Python.",
+    "SELECT name, COUNT(*) FROM users GROUP BY name ORDER BY 2 DESC;",
+    "Machine learning models are trained on large corpora of text.",
+    "The recipe calls for 2 cups of flour, 1 tsp of salt, and 3 eggs.",
+]
 
-t0 = time.perf_counter()
-raw6 = t.encode_threads(data, 6)
-t1 = time.perf_counter()
-print(f"6t encode_threads: {mb/(t1-t0):.1f} MB/s ({len(raw6)//4} ids)")
 
-bound = t.encode_bound(len(data))
-buf = bytearray(bound)
-t0 = time.perf_counter()
-n16 = t.encode_threads_into(data, buf, 16)
-t1 = time.perf_counter()
-print(f"16t into: {mb/(t1-t0):.1f} MB/s ({n16} ids)")
-del buf
+def rss_kb():
+    with open("/proc/self/statm") as f:
+        parts = f.read().split()
+    return int(parts[1]) * 4
 
-rt = t.decode(raw)
-print(f"round-trip: {rt == data}")
-print(f"rss after encode: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss} KB")
+
+def fold(h, data):
+    for b in data:
+        h = ((h ^ b) * PRIME) & MASK
+    return h
+
+
+def fold_count(h, v):
+    return fold(h, v.to_bytes(8, "little"))
+
+
+def main():
+    model, fmt, scheme, corpus = sys.argv[1:5]
+    doc_bytes = int(sys.argv[5]) if len(sys.argv) > 5 else (2 << 20)
+    prompt_calls = int(sys.argv[6]) if len(sys.argv) > 6 else 20000
+    threads = int(sys.argv[7]) if len(sys.argv) > 7 else 0
+
+    tok = tokenizer(model, fmt, scheme)
+    print(f"threads(auto): {default_threads()}")
+
+    fsz = os.path.getsize(corpus)
+    h = FNV0
+    total = 0
+    checked = 0
+    bad = 0
+    docs = 0
+    rss = [rss_kb(), -1, -1, -1, -1]
+    t0 = time.perf_counter()
+    with open(corpus, "rb") as f:
+        while True:
+            doc = f.read(doc_bytes)
+            if not doc:
+                break
+            raw = tok.encode_threads(doc, threads) if threads else tok(doc)
+            count = len(raw) // 4
+            h = fold_count(h, count)
+            head = min(count, 4096)
+            h = fold(h, raw[: head * 4])
+            if count > head:
+                h = fold(h, raw[(count - head) * 4:])
+            total += count
+            docs += 1
+            if docs % 64 == 0 or len(doc) < doc_bytes:
+                if tok.decode(raw) != doc:
+                    bad += 1
+                checked += 1
+            pos = f.tell()
+            if pos > 0:
+                for q in range(1, 5):
+                    if rss[q] < 0 and pos * 4 >= fsz * q:
+                        rss[q] = rss_kb()
+    t1 = time.perf_counter()
+    for i in range(5):
+        if rss[i] < 0:
+            rss[i] = rss_kb()
+    print(f"input: {fsz} bytes in {docs} docs of {doc_bytes} bytes")
+    print(f"ids: {total}")
+    print(f"hash: 0x{h:016x}")
+    print(f"roundtrip: {'ok' if bad == 0 else 'MISMATCH'} ({checked} checked)")
+    print(f"docs: {t1 - t0:.3f} s = {fsz / 1e6 / (t1 - t0):.1f} MB/s")
+    print(f"rss: {rss[0]} {rss[1]} {rss[2]} {rss[3]} {rss[4]} KB")
+
+    ph = FNV0
+    pids = 0
+    p0 = time.perf_counter()
+    for i in range(prompt_calls):
+        prompt = PROMPTS[i % 8].encode()
+        raw = (tok.encode_threads(prompt, threads)
+               if threads else tok(prompt))
+        count = len(raw) // 4
+        ph = fold_count(ph, count)
+        ph = fold(ph, raw)
+        pids += count
+    p1 = time.perf_counter()
+    print(
+        f"prompts: {prompt_calls} calls in {p1 - p0:.3f} s = "
+        f"{prompt_calls / (p1 - p0):.0f} calls/s, {pids} ids, "
+        f"hash 0x{ph:016x}"
+    )
+
+
+if __name__ == "__main__":
+    main()

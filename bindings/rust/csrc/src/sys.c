@@ -95,7 +95,7 @@ static int sys_encode(tsimd_sys *h, const uint8_t *data, size_t len,
     h->reuse.ids = NULL;
     h->reuse.cap = 0;
     int rc;
-    if (threads > 1) {
+    if (threads != 1) {
         rc = tsimd_tokenizer_encode_parallel(&h->tok, data, len, threads,
                                              &h->reuse);
     } else {
@@ -127,7 +127,7 @@ int tsimd_sys_encode_into(tsimd_sys *h, const uint8_t *data, size_t len,
     if (!h || !out) return -1;
     if (cap >= tsimd_tokenizer_encode_bound(&h->tok, len)) {
         size_t n = 0;
-        if (threads > 1) {
+        if (threads != 1) {
             if (tsimd_tokenizer_encode_parallel_into(&h->tok, data, len,
                                                      threads, out, cap,
                                                      &n) == 0) {
@@ -182,13 +182,8 @@ int tsimd_sys_decode(tsimd_sys *h, const uint32_t *ids, size_t n,
 int tsimd_sys_encode_own(tsimd_sys *h, const uint8_t *data, size_t len,
                         int threads) {
     if (!h) return -1;
-    int rc;
-    if (threads > 1)
-        rc = tsimd_tokenizer_encode_parallel(&h->tok, data, len, threads,
-                                             &h->reuse);
-    else
-        rc = tsimd_tokenizer_encode_into(&h->tok, data, len, &h->reuse);
-    return rc;
+    const tsimd_token_sequence_t *seq = NULL;
+    return sys_encode(h, data, len, threads, &seq) == 0 ? 0 : -1;
 }
 
 const uint32_t *tsimd_sys_ids(const tsimd_sys *h, size_t *n) {

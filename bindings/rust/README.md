@@ -89,7 +89,7 @@ Fourteen families, each byte-exact against its reference:
 | `Tokenizer::open(path, format, scheme)` | load a model file |
 | `encode(data) -> &[u32]` | sequential encode |
 | `encode_threads(data, n) -> &[u32]` | parallel encode, byte-identical |
-| `encode_into(data, buf, cap) -> usize` | zero-copy into the caller's buffer |
+| `encode_into(data, out, threads) -> Result<usize, String>` | zero-copy into the caller's buffer; `threads` follows the 0 = automatic, 1 = sequential, N = explicit convention |
 | `encode_bound(len) -> usize` | the required out-buffer size |
 | `decode(&[u32]) -> Vec<u8>` | ids back to bytes, exact round-trip |
 | `decode_opt(&[u32], skip_special) -> Vec<u8>` | decode with the specials filtered |

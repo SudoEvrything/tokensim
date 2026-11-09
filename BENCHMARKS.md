@@ -17,7 +17,7 @@ Reproduce:
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 build/bench_pretokenizer [gpt2|cl100k] [MiB]      # pretokenizer stage
-TSIMD_STATS=1 build/tokenize_file --format tiktoken /tmp/r50k_base.tiktoken \
+TSIMD_STATS=1 build/tsimd-tokenize --format tiktoken /tmp/r50k_base.tiktoken \
     gpt2 CORPUS > /dev/null                        # end-to-end + cache stats
 ```
 
@@ -229,8 +229,8 @@ first pass: 1t 48.8, 6t 226.2 (4.63x), 10t 285.4, 16t **298.4 MB/s
 is fixed (16t now faster than 8t) and wiki 16-thread PARITY with
 gigatoken (212-241 MB/s) is achieved.** OpenWebText remains
 memory-bound at 16 threads (2.1-2.6x behind gigatoken's first pass).
-Reproduce: the C driver `/tmp/bench_batch` or the module's
-encode_batch_raw; details in docs/03_cpu_pinning.md.
+Reproduce: the scripts/consumers/c/ladder.c driver built against
+the installed library; details in docs/03_cpu_pinning.md.
 
 ## Dual-cursor A/B + gigatoken 0.10.0 (2026-09-17, clean; aide killed)
 
@@ -537,7 +537,7 @@ Readings against the run-70 ladder (same machine, same protocol):
 
 Reproduce: `taskset -c 0-15 ./build/bench_encode --format F [--scheme
 S] --reps 2 --threads N MODEL [MODEL2] CORPUS` and
-`./scripts/run_ladder_73.sh` (the ladder). The phase map:
+`scripts/attic/run_ladder_73.sh` (the ladder). The phase map:
 `taskset -c 0 ./build/bench_phases --format F [--scheme S] MODEL
 [MODEL2] CORPUS`. Details in
 docs/73_safe_split_fix_fingerprint_filter_and_the_hf_study.md.
@@ -686,7 +686,7 @@ both corpora (4-MiB slices, tokenizers as the reference); the suite
 34/34 green. The deepseek P0 (the newline fusion in the arm-b SPACE
 branch) fixed, the pretokens now match the reference exactly.
 
-Reproduce: `bash scripts/run_ladder_74_batch.sh` (the log in
+Reproduce: `bash scripts/attic/run_ladder_74_batch.sh` (the log in
 .ladder77.log). Details in
 docs/77_deepseek_nemotron_mask_fills_parallel_nfc_and_the_encoding_sweep.md.
 ## Run 78, the batch routing fix and the o200k parity sweep (2026-09-26)
@@ -734,7 +734,7 @@ cold band's per-piece miss path (the run-51/52 list stands).
 Correctness: test_batch_fused (the batch ids == the sequential for
 every fused-serve scheme on a 1-MiB doc); the suite 35/35 green.
 
-Reproduce: `bash scripts/run_ladder_74_batch.sh` (the log in
+Reproduce: `bash scripts/attic/run_ladder_74_batch.sh` (the log in
 .ladder78.log); the gigatoken row:
 `taskset -c 0-15 ~/.local/bin/gigatoken bench
 models/o200k_base.tiktoken testdata/owt.txt`. Details in

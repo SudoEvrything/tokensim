@@ -1,64 +1,194 @@
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::time::Instant;
-use tokensim::{Format, Tokenizer};
+use tokensim::{default_threads, Format, Tokenizer};
+
+const PRIME: u64 = 0x100000001B3;
+const FNV0: u64 = 0xCBF29CE484222325;
+
+const PROMPTS: [&str; 8] = [
+    "Summarize the following article in one sentence.",
+    "def fib(n):\n    return n if n < 2 else fib(n - 1) + fib(n - 2)\n",
+    "The quick brown fox jumps over the lazy dog.",
+    "Bonjour, comment allez-vous aujourd'hui ?",
+    "Explain the difference between a list and a tuple in Python.",
+    "SELECT name, COUNT(*) FROM users GROUP BY name ORDER BY 2 DESC;",
+    "Machine learning models are trained on large corpora of text.",
+    "The recipe calls for 2 cups of flour, 1 tsp of salt, and 3 eggs.",
+];
+
+fn rss_kb() -> i64 {
+    let mut s = String::new();
+    if File::open("/proc/self/statm")
+        .and_then(|mut f| f.read_to_string(&mut s))
+        .is_err()
+    {
+        return -1;
+    }
+    let mut it = s.split_whitespace();
+    it.next();
+    match it.next().and_then(|v| v.parse::<i64>().ok()) {
+        Some(pages) => pages * 4,
+        None => -1,
+    }
+}
+
+fn fold_bytes(h: &mut u64, data: &[u8]) {
+    for &b in data {
+        *h ^= b as u64;
+        *h = h.wrapping_mul(PRIME);
+    }
+}
+
+fn fold_count(h: &mut u64, v: u64) {
+    fold_bytes(h, &v.to_le_bytes());
+}
+
+fn fold_ids(h: &mut u64, ids: &[u32]) {
+    for &id in ids {
+        fold_bytes(h, &id.to_le_bytes());
+    }
+}
+
+fn format_of(s: &str) -> Option<Format> {
+    match s {
+        "json" => Some(Format::Json),
+        "tiktoken" => Some(Format::Tiktoken),
+        "sentencepiece" => Some(Format::SentencePiece),
+        "gpt2" => Some(Format::Gpt2),
+        _ => None,
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let model = "/home/raising-reuel/tokenizer/models/cl100k_base.tiktoken";
-    let corpus = "/home/raising-reuel/tokenizer/testdata/owt.txt";
-    let mut tok = Tokenizer::open(model, Format::Tiktoken, Some("cl100k"))?;
-    let data = std::fs::read(corpus)?;
-    println!("input: {} MB", data.len() / (1024 * 1024));
-    let mb = data.len() as f64 / 1e6;
-
-    let t0 = Instant::now();
-    let ids: Vec<u32> = tok.encode(&data)?.to_vec();
-    let t1 = Instant::now();
-    println!(
-        "1t encode (to_vec): {:.1} MB/s ({} ids)",
-        mb / (t1 - t0).as_secs_f64(),
-        ids.len()
-    );
-    let rt = tok.decode(&ids)?;
-    println!("round-trip: {}", rt == data);
-
-    let bound = tok.encode_bound(data.len());
-    let mut buf = vec![0u32; bound];
-
-    for _ in 0..2 {
-        tok.encode_into(&data, &mut buf, 1)?;
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 5 {
+        eprintln!(
+            "usage: {} MODEL FORMAT SCHEME CORPUS [DOC_BYTES] [PROMPT_CALLS] [THREADS]",
+            args[0]
+        );
+        std::process::exit(2);
     }
-    let t0 = Instant::now();
-    let n1 = tok.encode_into(&data, &mut buf, 1)?;
-    let t1 = Instant::now();
-    println!(
-        "1t into (zero-copy): {:.1} MB/s ({} ids)",
-        mb / (t1 - t0).as_secs_f64(),
-        n1
-    );
+    let doc_bytes: usize = if args.len() > 5 {
+        args[5].parse().unwrap_or(2 << 20)
+    } else {
+        2 << 20
+    };
+    let prompt_calls: usize = if args.len() > 6 {
+        args[6].parse().unwrap_or(20000)
+    } else {
+        20000
+    };
+    let threads: usize = if args.len() > 7 {
+        args[7].parse().unwrap_or(0)
+    } else {
+        0
+    };
+    let fmt = format_of(&args[2]).ok_or("unknown format")?;
+    let mut tok = Tokenizer::open(&args[1], fmt, Some(&args[3]))?;
+    println!("threads(auto): {}", default_threads());
 
-    for _ in 0..2 {
-        tok.encode_into(&data, &mut buf, 6)?;
+    let fsz = std::fs::metadata(&args[4])?.len();
+    let mut reader = BufReader::with_capacity(1 << 20, File::open(&args[4])?);
+    let mut doc = vec![0u8; doc_bytes];
+
+    let mut h = FNV0;
+    let mut total: u64 = 0;
+    let mut checked: u64 = 0;
+    let mut bad: u64 = 0;
+    let mut docs: u64 = 0;
+    let mut rss = [rss_kb(), -1i64, -1, -1, -1];
+    let mut pos: u64 = 0;
+    let mut owned: Vec<u32> = Vec::new();
+    let mut do_check = false;
+    let t0 = Instant::now();
+    loop {
+        let mut n = 0usize;
+        while n < doc_bytes {
+            let got = reader.read(&mut doc[n..])?;
+            if got == 0 {
+                break;
+            }
+            n += got;
+        }
+        if n == 0 {
+            break;
+        }
+        {
+            let ids = if threads != 0 {
+                tok.encode_threads(&doc[..n], threads)?
+            } else {
+                tok.encode(&doc[..n])?
+            };
+            fold_count(&mut h, ids.len() as u64);
+            let head = ids.len().min(4096);
+            fold_ids(&mut h, &ids[..head]);
+            if ids.len() > head {
+                fold_ids(&mut h, &ids[ids.len() - head..]);
+            }
+            total += ids.len() as u64;
+            owned.clear();
+            do_check = (docs + 1) % 64 == 0 || n < doc_bytes;
+            if do_check {
+                owned.extend_from_slice(ids);
+            }
+        }
+        docs += 1;
+        if do_check {
+            if tok.decode(&owned)? != doc[..n] {
+                bad += 1;
+            }
+            checked += 1;
+        }
+        pos += n as u64;
+        for q in 1..5u64 {
+            if rss[q as usize] < 0 && pos * 4 >= fsz * q {
+                rss[q as usize] = rss_kb();
+            }
+        }
     }
-    let t0 = Instant::now();
-    let n6 = tok.encode_into(&data, &mut buf, 6)?;
-    let t1 = Instant::now();
-    println!(
-        "6t into: {:.1} MB/s ({} ids)",
-        mb / (t1 - t0).as_secs_f64(),
-        n6
-    );
-
-    for _ in 0..2 {
-        tok.encode_into(&data, &mut buf, 16)?;
+    let elapsed = t0.elapsed().as_secs_f64();
+    for i in 0..5 {
+        if rss[i] < 0 {
+            rss[i] = rss_kb();
+        }
     }
-    let t0 = Instant::now();
-    let n16 = tok.encode_into(&data, &mut buf, 16)?;
-    let t1 = Instant::now();
+    println!("input: {} bytes in {} docs of {} bytes", fsz, docs, doc_bytes);
+    println!("ids: {}", total);
+    println!("hash: 0x{:016x}", h);
     println!(
-        "16t into: {:.1} MB/s ({} ids)",
-        mb / (t1 - t0).as_secs_f64(),
-        n16
+        "roundtrip: {} ({} checked)",
+        if bad == 0 { "ok" } else { "MISMATCH" },
+        checked
+    );
+    println!("docs: {:.3} s = {:.1} MB/s", elapsed, fsz as f64 / 1e6 / elapsed);
+    println!(
+        "rss: {} {} {} {} {} KB",
+        rss[0], rss[1], rss[2], rss[3], rss[4]
     );
 
-    println!("parity: 1t==6t {} 1t==16t {}", n1 == n6, n1 == n16);
+    let mut ph = FNV0;
+    let mut pids: u64 = 0;
+    let p0 = Instant::now();
+    for i in 0..prompt_calls {
+        let p = PROMPTS[i % 8];
+        let ids = if threads != 0 {
+            tok.encode_threads(p.as_bytes(), threads)?
+        } else {
+            tok.encode(p.as_bytes())?
+        };
+        fold_count(&mut ph, ids.len() as u64);
+        fold_ids(&mut ph, ids);
+        pids += ids.len() as u64;
+    }
+    let pel = p0.elapsed().as_secs_f64();
+    println!(
+        "prompts: {} calls in {:.3} s = {:.0} calls/s, {} ids, hash 0x{:016x}",
+        prompt_calls,
+        pel,
+        prompt_calls as f64 / pel,
+        pids,
+        ph
+    );
     Ok(())
 }

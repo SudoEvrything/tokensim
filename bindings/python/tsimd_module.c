@@ -7,16 +7,19 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 typedef struct {
     PyObject_HEAD
     tsimd_tokenizer_t *tok;
+    pthread_mutex_t mu;
 } TokObject;
 
 static PyObject *TokError;
 
 static void Tok_dealloc(TokObject *self) {
     if (self->tok) {
+        pthread_mutex_destroy(&self->mu);
         tsimd_tokenizer_free(self->tok);
         free(self->tok);
     }
@@ -48,9 +51,11 @@ static PyObject *tok_encode(TokObject *self, PyObject *args) {
     memset(&seq, 0, sizeof seq);
     int rc;
     Py_BEGIN_ALLOW_THREADS
-    rc = tsimd_tokenizer_encode(self->tok,
-                                (const uint8_t *)view.buf,
-                                (size_t)view.len, &seq);
+    pthread_mutex_lock(&self->mu);
+    rc = tsimd_tokenizer_encode_parallel(self->tok,
+                                         (const uint8_t *)view.buf,
+                                         (size_t)view.len, 0, &seq);
+    pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
     if (rc != 0) {
@@ -79,9 +84,11 @@ static PyObject *tok_encode_list(TokObject *self, PyObject *args) {
     memset(&seq, 0, sizeof seq);
     int rc;
     Py_BEGIN_ALLOW_THREADS
-    rc = tsimd_tokenizer_encode(self->tok,
-                                (const uint8_t *)view.buf,
-                                (size_t)view.len, &seq);
+    pthread_mutex_lock(&self->mu);
+    rc = tsimd_tokenizer_encode_parallel(self->tok,
+                                         (const uint8_t *)view.buf,
+                                         (size_t)view.len, 0, &seq);
+    pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
     if (rc != 0) {
@@ -113,9 +120,11 @@ static PyObject *tok_encode_bytes(TokObject *self, PyObject *args) {
     memset(&seq, 0, sizeof seq);
     int rc;
     Py_BEGIN_ALLOW_THREADS
-    rc = tsimd_tokenizer_encode(self->tok,
-                                (const uint8_t *)view.buf,
-                                (size_t)view.len, &seq);
+    pthread_mutex_lock(&self->mu);
+    rc = tsimd_tokenizer_encode_parallel(self->tok,
+                                         (const uint8_t *)view.buf,
+                                         (size_t)view.len, 0, &seq);
+    pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
     if (rc != 0) {
@@ -130,15 +139,17 @@ static PyObject *tok_encode_bytes(TokObject *self, PyObject *args) {
 
 static PyObject *tok_encode_threads(TokObject *self, PyObject *args) {
     Py_buffer view;
-    int threads = 6;
+    int threads = 0;
     if (!PyArg_ParseTuple(args, "y*|i", &view, &threads)) return NULL;
     tsimd_token_sequence_t seq;
     memset(&seq, 0, sizeof seq);
     int rc;
     Py_BEGIN_ALLOW_THREADS
+    pthread_mutex_lock(&self->mu);
     rc = tsimd_tokenizer_encode_parallel(self->tok,
                                          (const uint8_t *)view.buf,
                                          (size_t)view.len, threads, &seq);
+    pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
     if (rc != 0) {
@@ -165,7 +176,7 @@ static PyObject *tok_encode_bound(TokObject *self, PyObject *args) {
 static PyObject *tok_encode_threads_into(TokObject *self, PyObject *args) {
     Py_buffer view;
     PyObject *out_obj;
-    int threads = 6;
+    int threads = 0;
     if (!PyArg_ParseTuple(args, "y*O|i", &view, &out_obj, &threads))
         return NULL;
     Py_buffer ov;
@@ -183,11 +194,13 @@ static PyObject *tok_encode_threads_into(TokObject *self, PyObject *args) {
     size_t count = 0;
     int rc;
     Py_BEGIN_ALLOW_THREADS
+    pthread_mutex_lock(&self->mu);
     rc = tsimd_tokenizer_encode_parallel_into(self->tok,
                                               (const uint8_t *)view.buf,
                                               (size_t)view.len, threads,
                                               (uint32_t *)ov.buf, cap,
                                               &count);
+    pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&ov);
     PyBuffer_Release(&view);
@@ -241,8 +254,10 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
     memset(&out, 0, sizeof out);
     int rc;
     Py_BEGIN_ALLOW_THREADS
+    pthread_mutex_lock(&self->mu);
     rc = tsimd_tokenizer_decode(self->tok, ids, (size_t)n, skip_special,
                                 &out);
+    pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     free(ids);
     if (rc != 0) {
@@ -257,15 +272,15 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
 
 static PyMethodDef Tok_methods[] = {
     {"encode", (PyCFunction)tok_encode, METH_VARARGS,
-     "encode(bytes) -> bytes of uint32 LE ids (the fast path)"},
+     "encode(bytes) -> bytes of uint32 LE ids (the fast path, auto threads)"},
     {"encode_list", (PyCFunction)tok_encode_list, METH_VARARGS,
-     "encode_list(bytes) -> [ids]"},
+     "encode_list(bytes) -> [ids] (auto threads)"},
     {"encode_bytes", (PyCFunction)tok_encode_bytes, METH_VARARGS,
-     "encode_bytes(bytes) -> bytes of uint32 LE ids"},
+     "encode_bytes(bytes) -> bytes of uint32 LE ids (auto threads)"},
     {"encode_threads", (PyCFunction)tok_encode_threads, METH_VARARGS,
-     "encode_threads(bytes, threads=6) -> bytes of uint32 LE ids"},
+     "encode_threads(bytes, threads=0) -> bytes of uint32 LE ids"},
     {"encode_threads_into", (PyCFunction)tok_encode_threads_into, METH_VARARGS,
-     "encode_threads_into(bytes, bytearray_out, threads=6) -> id count"},
+     "encode_threads_into(bytes, bytearray_out, threads=0) -> id count"},
     {"encode_bound", (PyCFunction)tok_encode_bound, METH_VARARGS,
      "encode_bound(len) -> required out-buffer bytes"},
     {"decode", (PyCFunction)tok_decode, METH_VARARGS,
@@ -289,9 +304,11 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
     const char *scheme = NULL;
     if (!PyArg_ParseTuple(args, "s|zz", &path, &format, &scheme)) return NULL;
     tsimd_model_format_t mt;
-    if (format_from_obj(format ? PyUnicode_FromString(format) : Py_None,
-                        &mt) != 0)
-        return NULL;
+    PyObject *fmt_obj = format ? PyUnicode_FromString(format) : Py_None;
+    if (!fmt_obj) return NULL;
+    int frc = format_from_obj(fmt_obj, &mt);
+    if (fmt_obj != Py_None) Py_DECREF(fmt_obj);
+    if (frc != 0) return NULL;
     tsimd_pretok_scheme_t sch = TSIMD_PRETOK_GPT2;
     if (scheme) {
         if (strcmp(scheme, "o200k") == 0) sch = TSIMD_PRETOK_O200K;
@@ -320,12 +337,21 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
         return NULL;
     }
     obj->tok = tok;
+    pthread_mutex_init(&obj->mu, NULL);
     return (PyObject *)obj;
+}
+
+static PyObject *mod_default_threads(PyObject *self, PyObject *args) {
+    (void)self;
+    (void)args;
+    return PyLong_FromLong(tsimd_default_threads());
 }
 
 static PyMethodDef mod_methods[] = {
     {"load", mod_load, METH_VARARGS, "load(path, format=None, scheme=None) -> Tokenizer"},
     {"tokenizer", mod_load, METH_VARARGS, "tokenizer(path, format=None, scheme=None) -> Tokenizer"},
+    {"default_threads", mod_default_threads, METH_NOARGS,
+     "default_threads() -> the automatic worker count"},
     {NULL, NULL, 0, NULL},
 };
 
