@@ -20,6 +20,27 @@ FORMAT is tiktoken, json, sentencepiece or gpt2. SCHEME is cl100k, o200k
 or gpt2 for the tiktoken families. DOC_BYTES defaults to 2 MiB,
 PROMPT_CALLS to 20000, THREADS to 0 = the automatic default.
 
+## The warm and the cold protocol
+
+The loop in these projects is cold by nature: every document passes
+once, so the short-pretoken cache misses on new content. The ladder and
+the single-shot benchmarks are warm by design (the last of three passes
+over the same corpus). The two protocols must never be compared: the
+warm single-shot (~4500 MB/s) against the cold sweep (~1600-2300 MB/s)
+reads as an engine gap that does not exist. The honest same-protocol
+numbers (cl100k, owt.txt, the into variant, 10 workers):
+
+| pass | single-shot | 2 MiB streaming | 16 MiB streaming |
+| --- | --- | --- | --- |
+| cold (one pass) | 1922-1977 | 1567-1864 | 2236-2279 |
+| warm (repeat passes) | ~4500 | ~3000 (the same document) | - |
+
+The cold-to-cold gap is 1.1-1.2x and sits inside the run-to-run band of
+the cold passes. Bigger documents amortize the fixed per-call cost
+(~0.3 ms); at 16 MiB the streaming matches the single-shot's cold band.
+The per-piece cycles are the honest instrument: ~22-25 cycles/piece
+warm in every regime, ~60 cold.
+
 ## C (pkg-config)
 
 ```
