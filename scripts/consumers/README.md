@@ -38,8 +38,9 @@ numbers (cl100k, owt.txt, the into variant, 10 workers):
 The cold-to-cold gap is 1.1-1.2x and sits inside the run-to-run band of
 the cold passes. Bigger documents amortize the fixed per-call cost
 (~0.3 ms); at 16 MiB the streaming matches the single-shot's cold band.
-The per-piece cycles are the honest instrument: ~22-25 cycles/piece
-warm in every regime, ~60 cold.
+32 and 64 MiB documents add nothing measurable (the amortization
+saturates) and cost memory. The per-piece cycles are the honest
+instrument: ~22-25 cycles/piece warm in every regime, ~60 cold.
 
 ## C (pkg-config)
 
