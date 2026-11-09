@@ -16,6 +16,8 @@ typedef struct {
     pthread_mutex_t mu;
     uint32_t *scratch;
     size_t scratch_cap;
+    uint8_t *dec_scratch;
+    size_t dec_scratch_cap;
 } TokObject;
 
 static PyObject *TokError;
@@ -27,6 +29,7 @@ static void Tok_dealloc(TokObject *self) {
         free(self->tok);
     }
     free(self->scratch);
+    free(self->dec_scratch);
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
@@ -335,13 +338,29 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
                         "decode expects a list of ids or a bytes-like buffer");
         return NULL;
     }
-    tsimd_byte_sequence_t out;
-    memset(&out, 0, sizeof out);
-    int rc;
+    size_t need = 0, got = 0;
+    int rc = 0;
     Py_BEGIN_ALLOW_THREADS
     pthread_mutex_lock(&self->mu);
-    rc = tsimd_tokenizer_decode(self->tok, ids, (size_t)n, skip_special,
-                                &out);
+    if (tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n, skip_special,
+                                    NULL, 0, &need) != 0) {
+        rc = -1;
+    } else if (need > self->dec_scratch_cap) {
+        size_t cap = self->dec_scratch_cap ? self->dec_scratch_cap : 4096;
+        while (cap < need) cap *= 2;
+        uint8_t *grown = realloc(self->dec_scratch, cap);
+        if (!grown) {
+            rc = -1;
+        } else {
+            self->dec_scratch = grown;
+            self->dec_scratch_cap = cap;
+        }
+    }
+    if (rc == 0 &&
+        tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n, skip_special,
+                                    self->dec_scratch,
+                                    self->dec_scratch_cap, &got) != 0)
+        rc = -1;
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     free(ids);
@@ -349,10 +368,8 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
         PyErr_SetString(TokError, "decode failed");
         return NULL;
     }
-    PyObject *res = PyBytes_FromStringAndSize((const char *)out.bytes,
-                                              (Py_ssize_t)out.len);
-    tsimd_byte_sequence_free(&out);
-    return res;
+    return PyBytes_FromStringAndSize((const char *)self->dec_scratch,
+                                     (Py_ssize_t)got);
 }
 
 static PyMethodDef Tok_methods[] = {
@@ -426,6 +443,8 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
     obj->tok = tok;
     obj->scratch = NULL;
     obj->scratch_cap = 0;
+    obj->dec_scratch = NULL;
+    obj->dec_scratch_cap = 0;
     pthread_mutex_init(&obj->mu, NULL);
     return (PyObject *)obj;
 }

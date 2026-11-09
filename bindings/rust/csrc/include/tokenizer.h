@@ -150,6 +150,11 @@ typedef struct {
 int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
                            const uint32_t *ids, size_t n, int skip_special,
                            tsimd_byte_sequence_t *out);
+
+int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
+                                const uint32_t *ids, size_t n,
+                                int skip_special, uint8_t *buf, size_t cap,
+                                size_t *out_len);
 void tsimd_byte_sequence_free(tsimd_byte_sequence_t *seq);
 
 int tsimd_tokenizer_encode_parallel_into(tsimd_tokenizer_t *t,

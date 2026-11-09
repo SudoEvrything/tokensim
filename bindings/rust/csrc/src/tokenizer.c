@@ -1834,11 +1834,12 @@ uint8_t *tsimd_nfc_normalize_all_tl(const tsimd_tokenizer_t *t,
     return nfc_normalize_all_impl(t, data, len, max_threads, out_len, 1);
 }
 
-int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
-                           const uint32_t *ids, size_t n, int skip_special,
-                           tsimd_byte_sequence_t *out) {
-    out->bytes = NULL;
-    out->len = 0;
+int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
+                                const uint32_t *ids, size_t n,
+                                int skip_special, uint8_t *buf, size_t cap,
+                                size_t *out_len) {
+    if (out_len) *out_len = 0;
+    if (!buf && cap) return -1;
 
     size_t total = 0;
     for (size_t i = 0; i < n; i++) {
@@ -1865,8 +1866,10 @@ int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
         fprintf(stderr, "tsimd: cannot decode id %u\n", id);
         return -1;
     }
+    if (out_len) *out_len = total;
+    if (!buf) return 0;
+    if (total > cap) return -1;
     if (total == 0) return 0;
-    uint8_t *buf = tsimd_xmalloc(total);
     size_t off = 0;
     for (size_t i = 0; i < n; i++) {
         size_t pf = i + 16;
@@ -1918,6 +1921,28 @@ int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
             }
         }
         off = w;
+    }
+    if (out_len) *out_len = off;
+    return 0;
+}
+
+int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
+                           const uint32_t *ids, size_t n, int skip_special,
+                           tsimd_byte_sequence_t *out) {
+    out->bytes = NULL;
+    out->len = 0;
+    size_t total = 0;
+    if (tsimd_tokenizer_decode_into(t, ids, n, skip_special, NULL, 0,
+                                    &total) != 0)
+        return -1;
+    if (total == 0) return 0;
+    uint8_t *buf = tsimd_xmalloc(total);
+    if (!buf) return -1;
+    size_t off = 0;
+    if (tsimd_tokenizer_decode_into(t, ids, n, skip_special, buf, total,
+                                    &off) != 0) {
+        free(buf);
+        return -1;
     }
     out->bytes = buf;
     out->len = off;

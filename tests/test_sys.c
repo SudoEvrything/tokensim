@@ -51,6 +51,32 @@ int main(void) {
 
     size_t n_own = 0;
     const uint32_t *own = NULL;
+    {
+        tsimd_tokenizer_t dt;
+        memset(&dt, 0, sizeof dt);
+        tsimd_pretok_scheme_t dsch = TSIMD_PRETOK_CL100K;
+        if (tsimd_tokenizer_load_model(&dt, TSIMD_MODEL_TIKTOKEN,
+                                       TSIMD_SRC_DIR
+                                       "/models/cl100k_base.tiktoken",
+                                       NULL, &dsch, NULL, 0) == 0) {
+            size_t need = 0;
+            check(tsimd_tokenizer_decode_into(&dt, ids, n_ids, 0, NULL, 0,
+                                              &need) == 0 &&
+                      need == strlen(text),
+                  "decode into count mode");
+            uint8_t *dbuf = malloc(need);
+            size_t got = 0;
+            check(tsimd_tokenizer_decode_into(&dt, ids, n_ids, 0, dbuf, need,
+                                              &got) == 0 && got == need &&
+                      memcmp(dbuf, text, need) == 0,
+                  "decode into matches");
+            check(tsimd_tokenizer_decode_into(&dt, ids, n_ids, 0, dbuf,
+                                              need - 1, &got) != 0,
+                  "decode into must fail on a short buffer");
+            free(dbuf);
+            tsimd_tokenizer_free(&dt);
+        }
+    }
     check(tsimd_sys_encode_own(h, (const uint8_t *)text, strlen(text), 1) == 0,
           "encode own");
     own = tsimd_sys_ids(h, &n_own);
