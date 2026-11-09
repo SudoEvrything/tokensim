@@ -1,9 +1,11 @@
 #include "pretokenizer.h"
+#include "simd.h"
 #include "internal.h"
 #include "unicode.h"
 #include "bpe.h"
 
 #include <immintrin.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <limits.h>
 #include <stdio.h>
@@ -52,7 +54,48 @@ typedef struct {
     uint64_t sl;
 } amask_t;
 
+__attribute__((target("avx512f,avx512bw")))
+static void ascii_masks_64_avx512(const uint8_t *p, amask_t *m) {
+    __m512i v = _mm512_loadu_si512((const void *)p);
+    __m512i lc = _mm512_set1_epi8('a');
+    __m512i l26 = _mm512_set1_epi8(26);
+    __m512i lo = _mm512_or_si512(v, _mm512_set1_epi8(0x20));
+    m->l = (uint64_t)_mm512_cmplt_epu8_mask(_mm512_sub_epi8(lo, lc), l26);
+    m->up = (uint64_t)(_mm512_cmpgt_epi8_mask(v, _mm512_set1_epi8(0x40)) &
+                       _mm512_cmpgt_epi8_mask(_mm512_set1_epi8(0x5B), v));
+    m->d = (uint64_t)(_mm512_cmpgt_epi8_mask(v, _mm512_set1_epi8(0x2F)) &
+                      _mm512_cmpgt_epi8_mask(_mm512_set1_epi8(0x3A), v));
+    m->s = (uint64_t)_mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8(' '));
+    __mmask64 n =
+        (uint64_t)(_mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8('\r')) |
+                   _mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8('\n')));
+    m->n = n;
+    __mmask64 wt =
+        (uint64_t)(_mm512_cmpgt_epi8_mask(v, _mm512_set1_epi8(8)) &
+                   _mm512_cmpgt_epi8_mask(_mm512_set1_epi8(14), v));
+    m->wt = wt & ~n;
+    m->hi = (uint64_t)_mm512_movepi8_mask(v);
+    m->ap = (uint64_t)_mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8('\''));
+    m->sl = (uint64_t)_mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8('/'));
+}
+
+static int ascii_masks_use512(void) {
+    static atomic_int state = 0;
+    int v = atomic_load_explicit(&state, memory_order_acquire);
+    if (v == 0) {
+        int on = tsimd_simd_level() >= TSIMD_SIMD_AVX512 &&
+                 tsimd_simd_level_supported(TSIMD_SIMD_AVX512);
+        atomic_store_explicit(&state, on ? 2 : 1, memory_order_release);
+        v = on ? 2 : 1;
+    }
+    return v == 2;
+}
+
 static void ascii_masks_64(const uint8_t *p, amask_t *m) {
+    if (ascii_masks_use512()) {
+        ascii_masks_64_avx512(p, m);
+        return;
+    }
     __m256i v0 = _mm256_loadu_si256((const __m256i *)(const void *)p);
     __m256i v1 = _mm256_loadu_si256((const __m256i *)(const void *)(p + 32));
     __m256i lc = _mm256_set1_epi8('a');

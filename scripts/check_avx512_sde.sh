@@ -25,7 +25,16 @@ echo "== exhaustive algebra, forced avx512 (expect 0 mismatches)"
 gcc -O2 -mavx2 -I include scripts/exhaustive_algebra.c \
     build/libtokensim.a -lm -lpthread -o /tmp/tsimd-exh
 timeout 570 "$SDE" -cpuid_in "$CPUID" -- \
-    env TSIMD_SIMD_FORCE=avx512 /tmp/tsimd-exh | tail -1
+    env TSIMD_SIMD_FORCE=avx512 /tmp/tsimd-exh | tee /tmp/exh-avx512.log | tail -1
+grep -q "TOTAL mismatches: 0" /tmp/exh-avx512.log || {
+  echo "the exhaustive algebra mismatched under the forced avx512"
+  exit 1
+}
+if [ -x build/test_avx512_fill_parity ]; then
+  echo "== fill parity avx2 vs avx512 (expect the identical hash)"
+  timeout 570 "$SDE" -cpuid_in "$CPUID" -- \
+      env TSIMD_SRC_DIR="$PWD" build/test_avx512_fill_parity
+fi
 if [ -f testdata/owt.txt ] || [ -f testdata/owt16m.txt ]; then
   echo "== parity gate x13 under SPR (expect 13x OK)"
   timeout 570 "$SDE" -cpuid_in "$CPUID" -- bash scripts/gate_parity.sh |
