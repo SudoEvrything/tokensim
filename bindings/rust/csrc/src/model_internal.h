@@ -25,6 +25,12 @@ void tsimd_decode_ids_write(const tsimd_tokenizer_t *t,
 int tsimd_decode_parallel_alloc(tsimd_tokenizer_t *t, const uint32_t *ids,
                                 size_t n, int skip_special,
                                 tsimd_byte_sequence_t *out, int threads);
+
+typedef void *(*tsimd_decode_alloc_cb)(void *ud, size_t total);
+int tsimd_decode_parallel_alloc_cb(tsimd_tokenizer_t *t, const uint32_t *ids,
+                                   size_t n, int skip_special,
+                                   tsimd_decode_alloc_cb cb, void *cb_ud,
+                                   size_t *out_len, int threads);
 #endif
 
 int tsimd_spm_parse(const char *path, char ***out_str, uint32_t **out_score,

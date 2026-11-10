@@ -371,8 +371,23 @@ static PyObject *tok_encode_threads_into(TokObject *self, PyObject *args) {
     return PyLong_FromSize_t(count);
 }
 
-static PyObject *tok_decode(TokObject *self, PyObject *args) {
+typedef struct {
     PyObject *obj;
+    char *buf;
+    size_t total;
+} py_dec_alloc_ud_t;
+
+static void *py_dec_alloc(void *ud, size_t total) {
+    py_dec_alloc_ud_t *u = ud;
+    PyGILState_STATE st = PyGILState_Ensure();
+    u->obj = PyBytes_FromStringAndSize(NULL, (Py_ssize_t)total);
+    u->buf = u->obj ? PyBytes_AS_STRING(u->obj) : NULL;
+    u->total = total;
+    PyGILState_Release(st);
+    return u->buf;
+}
+
+static PyObject *tok_decode(TokObject *self, PyObject *args) {    PyObject *obj;
     int skip_special = 0;
     if (!PyArg_ParseTuple(args, "O|p", &obj, &skip_special)) return NULL;
     uint32_t *ids = NULL;
@@ -420,49 +435,34 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
     size_t got = 0;
     int rc = 0;
     if (n >= (1u << 18)) {
-        size_t total = 0;
+        py_dec_alloc_ud_t ud = {NULL, NULL, 0};
         Py_BEGIN_ALLOW_THREADS
         pthread_mutex_lock(&self->mu);
-        rc = tsimd_tokenizer_decode_parallel(self->tok, ids, (size_t)n,
-                                             skip_special, NULL, 0,
-                                             &total, 0);
+        rc = tsimd_decode_parallel_alloc_cb(self->tok, ids, (size_t)n,
+                                            skip_special, py_dec_alloc, &ud,
+                                            &got, 0);
         pthread_mutex_unlock(&self->mu);
         Py_END_ALLOW_THREADS
-        if (rc == 0 && total > 0) {
-            PyObject *out_obj =
-                PyBytes_FromStringAndSize(NULL, (Py_ssize_t)total);
-            if (!out_obj) {
-                if (!have_view) free(ids);
-                PyBuffer_Release(&view);
-                return NULL;
-            }
-            char *outp = PyBytes_AS_STRING(out_obj);
-            Py_BEGIN_ALLOW_THREADS
-            pthread_mutex_lock(&self->mu);
-            rc = tsimd_tokenizer_decode_parallel(self->tok, ids, (size_t)n,
-                                                 skip_special,
-                                                 (uint8_t *)outp, total,
-                                                 &got, 0);
-            pthread_mutex_unlock(&self->mu);
-            Py_END_ALLOW_THREADS
-            if (rc != 0 || got == 0 || got > total) {
-                Py_DECREF(out_obj);
-                if (!have_view) free(ids);
-                PyBuffer_Release(&view);
-                PyErr_SetString(TokError, "decode failed");
-                return NULL;
-            }
-            if (got < (size_t)total &&
-                _PyBytes_Resize(&out_obj, (Py_ssize_t)got) != 0) {
-                out_obj = NULL;
+        if (rc == 0 && ud.obj && got > 0 && got <= ud.total) {
+            if (got < ud.total &&
+                _PyBytes_Resize(&ud.obj, (Py_ssize_t)got) != 0) {
+                ud.obj = NULL;
                 if (!have_view) free(ids);
                 PyBuffer_Release(&view);
                 return NULL;
             }
             if (!have_view) free(ids);
             PyBuffer_Release(&view);
-            return out_obj;
+            return ud.obj;
         }
+        if (ud.obj) Py_DECREF(ud.obj);
+        if (rc != 0 || got == 0) {
+            if (!have_view) free(ids);
+            PyBuffer_Release(&view);
+            PyErr_SetString(TokError, "decode failed");
+            return NULL;
+        }
+        got = 0;
     } else {
         Py_BEGIN_ALLOW_THREADS
         pthread_mutex_lock(&self->mu);
