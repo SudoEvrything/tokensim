@@ -312,6 +312,18 @@ def main():
     if not hasattr(tokensim, "tokenizer"):
         print("tokensim.tokenizer alias missing")
         fails += 1
+    cl = ROOT + "/models/cl100k_base.tiktoken"
+    if os.path.exists(cl):
+        try:
+            t1 = tsimd.load(cl)
+            t2 = tsimd.load(cl, "tiktoken")
+            b = TEXTS[0].encode("utf-8")
+            if ids_of(t1, b) != ids_of(t2, b):
+                print("one-arg load sniff mismatch")
+                fails += 1
+        except tokensim.Error as e:
+            print(f"one-arg load of a .tiktoken failed: {e}")
+            fails += 1
     for name, path in cases:
         if not os.path.exists(path):
             print(f"  SKIP {name}: no model at {path} "

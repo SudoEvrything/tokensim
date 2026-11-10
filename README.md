@@ -57,7 +57,10 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
 ctest --test-dir build            # 42 tests without local artifacts
 ```
 
-Then call it. From the command line:
+Then call it. The call shape is the one you know from the Hugging
+Face tokenizers: one argument in, ids out, decode back.
+
+From the command line:
 
 ```sh
 ./build/tsimd-tokenize --threads 6 cl100k_base.tiktoken cl100k file.txt
@@ -67,10 +70,48 @@ From Python:
 
 ```python
 import tokensim
-tok = tokensim.load("cl100k_base.tiktoken", "tiktoken", "cl100k")
-ids = tok.encode(b"hello world, don't stop")     # GIL released
+tok = tokensim.tokenizer("cl100k_base.tiktoken")
+ids = tok.encode(b"hello world, don't stop")
 tok.decode(ids)                                  # round-trips exactly
+tok.encode_batch([b"prompt one", b"prompt two"])
 ```
+
+One argument. The format is read from the file extension
+(`.tiktoken`, `.model`, `.json`), the scheme from the vocab size,
+the threads from the machine. Everything defaults; nothing needs
+tuning to be correct or fast.
+
+From Rust:
+
+```rust
+let tok = tokensim::Tokenizer::open("cl100k_base.tiktoken",
+                                    tokensim::Format::Tiktoken, None)?;
+let ids = tok.encode(b"hello world, don't stop")?;   // &[u32]
+let text = tok.decode(&ids)?;                        // Vec<u8>
+```
+
+From C:
+
+```c
+tsimd_tokenizer_t tok;
+tsimd_pretok_scheme_t scheme = TSIMD_PRETOK_GPT2;   /* 0 = auto */
+tsimd_tokenizer_load_model(&tok, TSIMD_MODEL_TIKTOKEN,
+                           "cl100k_base.tiktoken", NULL, &scheme, NULL, 0);
+tsimd_token_sequence_t ids = {0};
+tsimd_tokenizer_encode_parallel(&tok, text, len, 0, &ids);
+tsimd_byte_sequence_t back = {0};
+tsimd_tokenizer_decode(&tok, ids.ids, ids.count, 0, &back);
+```
+
+C has no default arguments, so the auto knob is the zero: threads 0
+means every core, the GPT2 scheme value means derive-from-vocab.
+
+Training-scale loops that tokenize gigabytes keep both legs in
+caller-owned buffers with the into variants
+(`encode_threads_into`, `decode_into`); the two shapes sit side by
+side in `scripts/consumers/`. Every call above releases the GIL in
+Python and fans out to the worker pool above a quarter megabyte of
+input.
 
 ## How it works
 

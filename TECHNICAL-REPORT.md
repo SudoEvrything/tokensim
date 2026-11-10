@@ -41,6 +41,41 @@ different prompt than the one it was trained to read. So this
 project has one organizing constraint: **correctness first**.
 Speed must be provably safe, not hopeful.
 
+### The call
+
+The usage follows the Hugging Face shape: one argument in, ids
+out, decode back.
+
+```python
+import tokensim
+tok = tokensim.tokenizer("cl100k_base.tiktoken")
+ids = tok.encode(b"some prompt")
+tok.decode(ids)
+```
+
+One argument, and everything else is derived. The format comes
+from the file extension (`.tiktoken`, `.model`, `.json`). The
+pretokenizer scheme comes from the vocab size signature: a
+100,256-token tiktoken file is cl100k, a 199,998-token file is
+o200k, a 50,257-token file is GPT-2. The thread count comes from
+the machine, and every call above a quarter megabyte of input
+fans out to the worker pool, on encode and decode alike. The
+same shape holds in Rust (`encode`, `decode`) and C
+(`encode_parallel`, `decode`, with zero as the auto knob,
+because C has no default arguments).
+
+Batch calls follow the same rule
+(`tok.encode_batch(list_of_prompts)`), and decode hands back an
+owned buffer with no extra copy in Rust and C.
+
+Training-scale callers that tokenize gigabytes keep both legs in
+caller-owned buffers instead: `encode_threads_into` and
+`decode_into` in Python, `encode_into` and `decode_parallel` in
+Rust, the `_into` entries in C. That shape trades a few lines of
+setup for the last few percent; the two shapes sit side by side
+in `scripts/consumers/`, and every document they tokenize is
+decoded and byte-compared before the program exits.
+
 ### The pipeline
 
 tokensim runs a short pipeline:

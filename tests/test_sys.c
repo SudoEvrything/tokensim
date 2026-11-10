@@ -283,6 +283,39 @@ int main(void) {
     tsimd_sys_free(ids);
     tsimd_sys_close(h);
 
+    {
+        tsimd_tokenizer_t a;
+        memset(&a, 0, sizeof a);
+        tsimd_pretok_scheme_t g2 = TSIMD_PRETOK_GPT2;
+        tsimd_pretok_scheme_t cl = TSIMD_PRETOK_CL100K;
+        check(tsimd_tokenizer_load_model(&a, TSIMD_MODEL_TIKTOKEN, CL100K,
+                                         NULL, &g2, NULL, 0) == 0,
+              "tiktoken auto-scheme load");
+        tsimd_tokenizer_t b;
+        memset(&b, 0, sizeof b);
+        check(tsimd_tokenizer_load_model(&b, TSIMD_MODEL_TIKTOKEN, CL100K,
+                                         NULL, &cl, NULL, 0) == 0,
+              "tiktoken explicit cl100k load");
+        if (a.scheme == TSIMD_PRETOK_CL100K && b.scheme == TSIMD_PRETOK_CL100K) {
+            const char *sample = "The quick brown fox jumps over the lazy dog.";
+            tsimd_token_sequence_t sa, sb;
+            check(tsimd_tokenizer_encode(&a, (const uint8_t *)sample,
+                                         strlen(sample), &sa) == 0,
+                  "auto-scheme encode");
+            check(tsimd_tokenizer_encode(&b, (const uint8_t *)sample,
+                                         strlen(sample), &sb) == 0,
+                  "explicit-scheme encode");
+            check(sa.count == sb.count &&
+                      memcmp(sa.ids, sb.ids, sa.count * 4) == 0,
+                  "auto-scheme ids equal explicit cl100k ids");
+            tsimd_token_sequence_free(&sa);
+            tsimd_token_sequence_free(&sb);
+        } else {
+            check(0, "auto-scheme resolve wrote back cl100k");
+        }
+        tsimd_tokenizer_free(&a);
+        tsimd_tokenizer_free(&b);
+    }
     h = tsimd_sys_open(T5, "sentencepiece", "auto", err, sizeof err);
     check(h != NULL, "open t5");
     if (h) {
@@ -329,6 +362,30 @@ int main(void) {
                   "t5 sys 4t ids equal the parallel reference");
             tsimd_token_sequence_free(&r4);
             tsimd_sys_free(sids4);
+            uint32_t *dids = NULL;
+            size_t dn = 0;
+            check(tsimd_sys_encode(h, big, big_len, 4, &dids, &dn) == 0,
+                  "t5 sys encode for the decode check");
+            tsimd_byte_sequence_t d1;
+            memset(&d1, 0, sizeof d1);
+            check(tsimd_tokenizer_decode(&ref, dids, dn, 0, &d1) == 0,
+                  "simple decode of the 16MiB t5 ids");
+            size_t need = 0;
+            check(tsimd_tokenizer_decode_parallel(&ref, dids, dn, 0, NULL, 0,
+                                                  &need, 0) == 0,
+                  "decode_parallel count mode");
+            uint8_t *dref = malloc(need);
+            check(dref != NULL, "alloc decode reference buffer");
+            size_t got2 = 0;
+            check(tsimd_tokenizer_decode_parallel(&ref, dids, dn, 0, dref,
+                                                  need, &got2, 0) == 0,
+                  "decode_parallel write mode");
+            check(d1.len == got2 && got2 > 0 &&
+                      memcmp(d1.bytes, dref, got2) == 0,
+                  "simple decode equals the parallel decode");
+            free(dref);
+            tsimd_byte_sequence_free(&d1);
+            tsimd_sys_free(dids);
             free(big);
             tsimd_tokenizer_free(&ref);
         }

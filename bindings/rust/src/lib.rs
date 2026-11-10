@@ -365,15 +365,13 @@ impl Tokenizer {
         if rc != 0 {
             return Err("decode failed (unknown id)".to_string());
         }
-        let out = if n == 0 {
-            Vec::new()
-        } else {
-            unsafe { std::slice::from_raw_parts(bytes, n).to_vec() }
-        };
-        if !bytes.is_null() {
-            unsafe { tsimd_sys_free(bytes as *mut c_void) };
+        if n == 0 {
+            if !bytes.is_null() {
+                unsafe { tsimd_sys_free(bytes as *mut c_void) };
+            }
+            return Ok(Vec::new());
         }
-        Ok(out)
+        Ok(unsafe { Vec::from_raw_parts(bytes, n, n) })
     }
 }
 
@@ -454,6 +452,21 @@ mod tests {
         assert!(!ids.is_empty());
         let text = tok.decode(&ids).unwrap();
         assert_eq!(text, b"Hello world, this is a test.");
+    }
+
+    #[test]
+    fn decode_owns_engine_buffer() {
+        if !models_available() { eprintln!("skip: no models dir"); return; }
+        let mut tok = Tokenizer::open("../../models/cl100k_base.tiktoken", Format::Tiktoken, Some("cl100k"))
+            .expect("load cl100k");
+        let data = b"The engine buffer becomes the Vec, no copy. ".repeat(50000);
+        let ids: Vec<u32> = tok.encode(&data).unwrap().to_vec();
+        let want = tok.decode(&ids).unwrap();
+        assert_eq!(want.len(), data.len());
+        assert_eq!(want.capacity(), want.len());
+        assert_eq!(want, data);
+        let again = tok.decode(&ids).unwrap();
+        assert_eq!(again, data);
     }
 
     #[test]

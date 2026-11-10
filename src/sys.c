@@ -223,19 +223,8 @@ int tsimd_sys_decode(tsimd_sys *h, const uint32_t *ids, size_t n,
     tsimd_byte_sequence_t dec;
     if (tsimd_tokenizer_decode(&h->tok, ids, n, skip_special, &dec) != 0)
         return -1;
-    uint8_t *buf = NULL;
-    if (dec.len) {
-        buf = tsimd_xmalloc(dec.len);
-        if (!buf) {
-            tsimd_byte_sequence_free(&dec);
-            return -1;
-        }
-        memcpy(buf, dec.bytes, dec.len);
-    }
-    size_t dlen = dec.len;
-    tsimd_byte_sequence_free(&dec);
-    if (bytes) *bytes = buf;
-    if (n_bytes) *n_bytes = dlen;
+    if (bytes) *bytes = dec.bytes;
+    if (n_bytes) *n_bytes = dec.len;
     return 0;
 }
 

@@ -107,15 +107,18 @@ static int append_added(tsimd_tokenizer_t *t, const tsimd_added_token_t *extra,
     return rebuild_added_index(t);
 }
 
-static int tiktoken_scheme_ok(tsimd_pretok_scheme_t sch, size_t vocab_size) {
-    if (sch != TSIMD_PRETOK_GPT2 && sch != TSIMD_PRETOK_GPT2D) return 1;
-    if (vocab_size < 60000) return 1;
+static tsimd_pretok_scheme_t tiktoken_scheme_resolve(
+    tsimd_pretok_scheme_t sch, size_t vocab_size) {
+    if (sch != TSIMD_PRETOK_GPT2 && sch != TSIMD_PRETOK_GPT2D) return sch;
+    if (vocab_size < 60000) return sch;
+    if (vocab_size == 100256) return TSIMD_PRETOK_CL100K;
+    if (vocab_size == 199998) return TSIMD_PRETOK_O200K;
     fprintf(stderr,
             "tsimd: scheme gpt2 requested for a %zu-token tiktoken vocab "
             "(cl100k/o200k size signature); the gpt2 regex does not match "
             "this vocab — pass cl100k or o200k explicitly\n",
             vocab_size);
-    return 0;
+    return sch;
 }
 
 static void decode_tables_build(tsimd_tokenizer_t *t) {
@@ -164,7 +167,9 @@ int tsimd_tokenizer_load_model(tsimd_tokenizer_t *t, tsimd_model_format_t fmt,
                 fprintf(stderr, "tsimd: cannot load tiktoken vocab %s\n", path1);
                 goto out;
             }
-            if (!tiktoken_scheme_ok(det, t->vocab.vocab_size)) {
+            det = tiktoken_scheme_resolve(det, t->vocab.vocab_size);
+            if ((det == TSIMD_PRETOK_GPT2 || det == TSIMD_PRETOK_GPT2D) &&
+                t->vocab.vocab_size >= 60000) {
                 rc = -1;
                 goto out;
             }
@@ -1947,6 +1952,23 @@ int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
     out->bytes = NULL;
     out->len = 0;
     size_t total = 0;
+    if (n >= ((size_t)1 << 18) &&
+        tsimd_tokenizer_decode_parallel(t, ids, n, skip_special, NULL, 0,
+                                        &total, 0) == 0 && total) {
+        uint8_t *pbuf = tsimd_xmalloc(total);
+        if (pbuf) {
+            size_t got = 0;
+            if (tsimd_tokenizer_decode_parallel(t, ids, n, skip_special,
+                                                pbuf, total, &got,
+                                                0) == 0 && got && got <= total) {
+                out->bytes = pbuf;
+                out->len = got;
+                return 0;
+            }
+            free(pbuf);
+        }
+        total = 0;
+    }
     if (tsimd_tokenizer_decode_into(t, ids, n, skip_special, NULL, 0,
                                     &total) != 0)
         return -1;

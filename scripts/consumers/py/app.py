@@ -36,7 +36,7 @@ def main():
     doc_bytes = int(sys.argv[5]) if len(sys.argv) > 5 else (16 << 20)
     prompt_calls = int(sys.argv[6]) if len(sys.argv) > 6 else 20000
 
-    tok = tokenizer(model, fmt, scheme)
+    tok = tokenizer(model)
     print(f"threads(auto): {default_threads()}")
 
     fsz = os.path.getsize(corpus)

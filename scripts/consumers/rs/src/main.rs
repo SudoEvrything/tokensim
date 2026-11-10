@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::io::Read;
 use std::time::Instant;
 use memmap2::Mmap;
 use tokensim::{default_threads, Format, Tokenizer};
@@ -75,8 +74,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let fsz = std::fs::metadata(&args[4])?.len();
     let mmap = unsafe { Mmap::map(&File::open(&args[4])?)? };
-    let mut dbuf = vec![0u8; doc_bytes + 64];
-    let mut ebuf = vec![0u32; tok.encode_bound(doc_bytes)];
     mmap.advise(memmap2::Advice::Sequential)?;
 
     let mut h = FNV0;
@@ -86,7 +83,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut docs: u64 = 0;
     let mut enc_t = 0f64;
     let mut dec_t = 0f64;
-    let mut last_nid: usize = 0;
     let t0 = Instant::now();
     let mut off: usize = 0;
     loop {
@@ -94,30 +90,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if n == 0 {
             break;
         }
-        {
-            let doc = &mmap[off..off + n];
-            let a = Instant::now();
-            let nid = tok.encode_into(doc, &mut ebuf, threads)?;
-            enc_t += a.elapsed().as_secs_f64();
-            fold_count(&mut h, nid as u64);
-            let head = (nid as usize).min(4096);
-            fold_ids(&mut h, &ebuf[..head]);
-            if nid as usize > head {
-                fold_ids(&mut h, &ebuf[nid as usize - head..nid as usize]);
-            }
-            total += nid as u64;
-            last_nid = nid;
+        let doc = &mmap[off..off + n];
+        let a = Instant::now();
+        let ids = tok.encode(doc)?.to_vec();
+        enc_t += a.elapsed().as_secs_f64();
+        fold_count(&mut h, ids.len() as u64);
+        let head = ids.len().min(4096);
+        fold_ids(&mut h, &ids[..head]);
+        if ids.len() > head {
+            fold_ids(&mut h, &ids[ids.len() - head..]);
         }
+        total += ids.len() as u64;
         docs += 1;
-        {
-            let c = Instant::now();
-            let got = tok.decode_parallel(&ebuf[..last_nid], &mut dbuf, false,
-                                          threads)?;
-            dec_t += c.elapsed().as_secs_f64();
-            checked += 1;
-            if got != n || mmap[off..off + n] != dbuf[..got] {
-                bad += 1;
-            }
+        let c = Instant::now();
+        let back = tok.decode(&ids)?;
+        dec_t += c.elapsed().as_secs_f64();
+        checked += 1;
+        if back.len() != n || &mmap[off..off + n] != back.as_slice() {
+            bad += 1;
         }
         off += n;
     }
@@ -141,20 +131,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ph = FNV0;
     let mut pids: u64 = 0;
     let p0 = Instant::now();
-    let batch_n = 256;
-    let mut done: usize = 0;
-    while done < prompt_calls {
-        let n = usize::min(prompt_calls - done, batch_n);
-        let chunk: Vec<&[u8]> = (0..n)
-            .map(|i| PROMPTS[(done + i) % 8].as_bytes())
-            .collect();
-        let batch = tok.encode_batch(&chunk, threads)?;
-        for ids in &batch {
-            fold_count(&mut ph, ids.len() as u64);
-            fold_ids(&mut ph, ids);
-            pids += ids.len() as u64;
-        }
-        done += n;
+    let chunk: Vec<&[u8]> = (0..prompt_calls)
+        .map(|i| PROMPTS[i % 8].as_bytes())
+        .collect();
+    let batch = tok.encode_batch(&chunk, threads)?;
+    for ids in &batch {
+        fold_count(&mut ph, ids.len() as u64);
+        fold_ids(&mut ph, ids);
+        pids += ids.len() as u64;
     }
     let pel = p0.elapsed().as_secs_f64();
     println!(

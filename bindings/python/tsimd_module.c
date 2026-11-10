@@ -52,9 +52,16 @@ static PyObject *tok_scratch_result(TokObject *self, size_t count) {
                                      (Py_ssize_t)count * 4);
 }
 
-static int format_from_obj(PyObject *obj, tsimd_model_format_t *out) {
+static int format_from_obj(PyObject *obj, const char *path,
+                           tsimd_model_format_t *out) {
     if (obj == NULL || obj == Py_None) {
-        *out = TSIMD_MODEL_TOKENIZER_JSON;
+        const char *dot = path ? strrchr(path, '.') : NULL;
+        if (dot && strcmp(dot, ".tiktoken") == 0)
+            *out = TSIMD_MODEL_TIKTOKEN;
+        else if (dot && strcmp(dot, ".model") == 0)
+            *out = TSIMD_MODEL_SENTENCEPIECE;
+        else
+            *out = TSIMD_MODEL_TOKENIZER_JSON;
         return 0;
     }
     const char *s = PyUnicode_AsUTF8(obj);
@@ -503,7 +510,7 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
     tsimd_model_format_t mt;
     PyObject *fmt_obj = format ? PyUnicode_FromString(format) : Py_None;
     if (!fmt_obj) return NULL;
-    int frc = format_from_obj(fmt_obj, &mt);
+    int frc = format_from_obj(fmt_obj, path, &mt);
     if (fmt_obj != Py_None) Py_DECREF(fmt_obj);
     if (frc != 0) return NULL;
     tsimd_pretok_scheme_t sch = TSIMD_PRETOK_GPT2;
