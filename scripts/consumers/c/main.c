@@ -114,12 +114,18 @@ int main(int argc, char **argv) {
     }
     madvise(buf, (size_t)fsz, MADV_SEQUENTIAL);
     size_t ebound = tsimd_tokenizer_encode_bound(&t, doc_bytes);
-    uint32_t *ebuf = malloc(ebound * 4);
+    uint32_t *ebuf = aligned_alloc(2u << 20,
+                                   ((ebound * 4 + (2u << 20) - 1) &
+                                    ~((size_t)(2u << 20) - 1)));
     if (!ebuf) return 1;
+    madvise(ebuf, ebound * 4, MADV_HUGEPAGE);
 
     size_t dbound = doc_bytes + 64;
-    uint8_t *dbuf = malloc(dbound);
+    uint8_t *dbuf = aligned_alloc(2u << 20,
+                                  ((dbound + (2u << 20) - 1) &
+                                   ~((size_t)(2u << 20) - 1)));
     if (!dbuf) return 1;
+    madvise(dbuf, dbound, MADV_HUGEPAGE);
     uint64_t h = 0xcbf29ce484222325ULL;
     unsigned long long total = 0, checked = 0, bad = 0;
     size_t docs = 0;
@@ -148,13 +154,13 @@ int main(int argc, char **argv) {
         docs++;
         double c = now();
         size_t got = 0;
-        if (tsimd_tokenizer_decode_parallel(&t, ebuf, n_out, 0, dbuf, dbound,
-                                            &got, threads) != 0 || got != n ||
-            memcmp(dbuf, buf + off, n) != 0)
-            bad++;
-        checked++;
+        int drc = tsimd_tokenizer_decode_parallel(&t, ebuf, n_out, 0, dbuf,
+                                                  dbound, &got, threads);
         double d = now();
-        dec_t += d - c;        long pos = (long)(off + n);
+        dec_t += d - c;
+        if (drc != 0 || got != n || memcmp(dbuf, buf + off, n) != 0)
+            bad++;
+        checked++;        long pos = (long)(off + n);
         if (fsz > 0 && pos > 0) {
             for (int q = 1; q < 5; q++)
                 if (rss[q] < 0 && pos * 4 >= fsz * q) rss[q] = rss_kb();

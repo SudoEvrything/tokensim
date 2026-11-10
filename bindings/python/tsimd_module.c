@@ -306,6 +306,7 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "O|p", &obj, &skip_special)) return NULL;
     uint32_t *ids = NULL;
     Py_ssize_t n = 0;
+    int have_view = 0;
     Py_buffer view;
     if (PyList_Check(obj)) {
         n = PyList_Size(obj);
@@ -327,13 +328,19 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
             return NULL;
         }
         n = view.len / 4;
-        ids = malloc((size_t)(n > 0 ? n : 1) * sizeof(uint32_t));
-        if (!ids) {
+        if (((uintptr_t)view.buf & 3) == 0) {
+            ids = view.buf;
+            have_view = 1;
+        } else {
+            ids = malloc((size_t)(n > 0 ? n : 1) * sizeof(uint32_t));
+            if (!ids) {
+                PyBuffer_Release(&view);
+                return PyErr_NoMemory();
+            }
+            memcpy(ids, view.buf, (size_t)n * 4);
             PyBuffer_Release(&view);
-            return PyErr_NoMemory();
+            have_view = 0;
         }
-        memcpy(ids, view.buf, (size_t)n * 4);
-        PyBuffer_Release(&view);
     } else {
         PyErr_SetString(PyExc_TypeError,
                         "decode expects a list of ids or a bytes-like buffer");
@@ -382,7 +389,8 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
     }
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
-    free(ids);
+    if (!have_view) free(ids);
+    PyBuffer_Release(&view);
     if (rc != 0 || got == 0) {
         PyErr_SetString(TokError, "decode failed");
         return NULL;
