@@ -14,6 +14,13 @@ uint32_t tsimd_vocab_merge_target(const tsimd_vocab_t *v, uint32_t left,
 
 void tsimd_bpe_split_dump(void);
 
+
+size_t tsimd_decode_ids_count(const tsimd_tokenizer_t *t,
+                              const uint32_t *ids, size_t n,
+                              int skip_special, int *err);
+void tsimd_decode_ids_write(const tsimd_tokenizer_t *t,
+                            const uint32_t *ids, size_t n, int skip_special,
+                            uint8_t *buf, size_t *off);
 #endif
 
 int tsimd_spm_parse(const char *path, char ***out_str, uint32_t **out_score,

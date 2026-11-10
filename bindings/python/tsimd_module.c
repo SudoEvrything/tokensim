@@ -356,11 +356,16 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
             self->dec_scratch_cap = cap;
         }
     }
-    if (rc == 0 &&
-        tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n, skip_special,
-                                    self->dec_scratch,
-                                    self->dec_scratch_cap, &got) != 0)
-        rc = -1;
+    if (rc == 0) {
+        if (need >= (1u << 20))
+            rc = tsimd_tokenizer_decode_parallel(
+                self->tok, ids, (size_t)n, skip_special, self->dec_scratch,
+                self->dec_scratch_cap, &got, 0);
+        else
+            rc = tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n,
+                                             skip_special, self->dec_scratch,
+                                             self->dec_scratch_cap, &got);
+    }
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     free(ids);

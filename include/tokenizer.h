@@ -151,6 +151,12 @@ int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
                            const uint32_t *ids, size_t n, int skip_special,
                            tsimd_byte_sequence_t *out);
 
+int tsimd_tokenizer_decode_parallel(tsimd_tokenizer_t *t,
+                                    const uint32_t *ids, size_t n,
+                                    int skip_special, uint8_t *buf,
+                                    size_t cap, size_t *out_len,
+                                    int threads);
+
 int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
                                 const uint32_t *ids, size_t n,
                                 int skip_special, uint8_t *buf, size_t cap,

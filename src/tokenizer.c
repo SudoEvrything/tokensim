@@ -1834,20 +1834,16 @@ uint8_t *tsimd_nfc_normalize_all_tl(const tsimd_tokenizer_t *t,
     return nfc_normalize_all_impl(t, data, len, max_threads, out_len, 1);
 }
 
-int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
-                                const uint32_t *ids, size_t n,
-                                int skip_special, uint8_t *buf, size_t cap,
-                                size_t *out_len) {
-    if (out_len) *out_len = 0;
-    if (!buf && cap) return -1;
-
+size_t tsimd_decode_ids_count(const tsimd_tokenizer_t *t,
+                              const uint32_t *ids, size_t n,
+                              int skip_special, int *err) {
     size_t total = 0;
     for (size_t i = 0; i < n; i++) {
         uint32_t id = ids[i];
-        const tsimd_added_token_t *at0 =
+        const tsimd_added_token_t *at =
             id < t->added_by_id_n ? t->added_by_id[id] : NULL;
-        if (at0) {
-            if (!at0->is_special || !skip_special) total += at0->length;
+        if (at) {
+            if (!at->is_special || !skip_special) total += at->length;
             continue;
         }
         if (id < t->vocab.vocab_size) {
@@ -1864,13 +1860,15 @@ int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
             continue;
         }
         fprintf(stderr, "tsimd: cannot decode id %u\n", id);
-        return -1;
+        if (err) *err = 1;
+        return total;
     }
-    if (out_len) *out_len = total;
-    if (!buf) return 0;
-    if (total > cap) return -1;
-    if (total == 0) return 0;
-    size_t off = 0;
+    return total;
+}
+
+void tsimd_decode_ids_write(const tsimd_tokenizer_t *t,
+                            const uint32_t *ids, size_t n, int skip_special,
+                            uint8_t *buf, size_t *off) {
     for (size_t i = 0; i < n; i++) {
         size_t pf = i + 16;
         if (pf < n && ids[pf] < t->vocab.vocab_size) {
@@ -1879,12 +1877,12 @@ int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
             __builtin_prefetch(t->vocab.bytes + pb + 64);
         }
         uint32_t id = ids[i];
-        const tsimd_added_token_t *at1 =
+        const tsimd_added_token_t *at =
             id < t->added_by_id_n ? t->added_by_id[id] : NULL;
-        if (at1) {
-            if (!at1->is_special || !skip_special) {
-                memcpy(buf + off, at1->text, at1->length);
-                off += at1->length;
+        if (at) {
+            if (!at->is_special || !skip_special) {
+                memcpy(buf + *off, at->text, at->length);
+                *off += at->length;
             }
             continue;
         }
@@ -1894,18 +1892,35 @@ int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
                     (t->spm_ctl_flags[id >> 3] >> (id & 7)) & 1)
                     continue;
                 if (id == t->vocab.spm_unk_id) {
-                    memcpy(buf + off, t->vocab.spm_unk_surface,
+                    memcpy(buf + *off, t->vocab.spm_unk_surface,
                            t->vocab.spm_unk_surface_len);
-                    off += t->vocab.spm_unk_surface_len;
+                    *off += t->vocab.spm_unk_surface_len;
                     continue;
                 }
             }
             uint32_t b = t->vocab.offsets[id], e = t->vocab.offsets[id + 1];
-            memcpy(buf + off, t->vocab.bytes + b, e - b);
-            off += e - b;
+            memcpy(buf + *off, t->vocab.bytes + b, e - b);
+            *off += e - b;
             continue;
         }
     }
+}
+
+int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
+                                const uint32_t *ids, size_t n,
+                                int skip_special, uint8_t *buf, size_t cap,
+                                size_t *out_len) {
+    if (out_len) *out_len = 0;
+    if (!buf && cap) return -1;
+    int err = 0;
+    size_t total = tsimd_decode_ids_count(t, ids, n, skip_special, &err);
+    if (err) return -1;
+    if (out_len) *out_len = total;
+    if (!buf) return 0;
+    if (total > cap) return -1;
+    if (total == 0) return 0;
+    size_t off = 0;
+    tsimd_decode_ids_write(t, ids, n, skip_special, buf, &off);
     if (t->scheme == TSIMD_PRETOK_SPM || t->scheme == TSIMD_PRETOK_GEM4) {
         size_t r = 0, w = 0;
         if ((t->spm_dummy_prefix || t->spm_remove_extra) && off >= 3 &&

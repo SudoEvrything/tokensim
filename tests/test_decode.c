@@ -140,6 +140,25 @@ int main(int argc, char **argv) {
             tsimd_token_sequence_free(&seq);
             continue;
         }
+        {
+            size_t need = 0;
+            tsimd_tokenizer_decode_into(&t, seq.ids, seq.count, 0, NULL, 0,
+                                        &need);
+            uint8_t *serial = malloc(need ? need : 1);
+            uint8_t *par = malloc(need ? need : 1);
+            size_t got_s = 0, got_p = 0;
+            tsimd_tokenizer_decode_into(&t, seq.ids, seq.count, 0, serial,
+                                        need, &got_s);
+            tsimd_tokenizer_decode_parallel(&t, seq.ids, seq.count, 0, par,
+                                            need, &got_p, 0);
+            if (got_s != got_p || memcmp(serial, par, got_s) != 0) {
+                fprintf(stderr, "FAIL: the parallel decode differs from the "
+                                "serial decode\n");
+                fails++;
+            }
+            free(serial);
+            free(par);
+        }
         size_t wl = strlen(CASES[c].want);
         if (dec.len != wl ||
             (wl && memcmp(dec.bytes, CASES[c].want, wl) != 0)) {
@@ -210,7 +229,7 @@ int main(int argc, char **argv) {
         }
         tsimd_tokenizer_free(&t0);
     }
-    if (fails) {
+if (fails) {
         fprintf(stderr, "%d decode cases FAILED\n", fails);
         return 1;
     }

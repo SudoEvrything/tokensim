@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "tokenizer.h"
+#include "model_internal.h"
 #include "batch.h"
 #include "internal.h"
 #include "simd.h"
@@ -55,7 +56,15 @@ typedef struct {
     int foreign;
 } idvec_t;
 
-enum { JOB_TEXT = 0, JOB_SPECIAL, JOB_BPE, JOB_GATHER, JOB_NFC };
+enum {
+    JOB_TEXT = 0,
+    JOB_SPECIAL,
+    JOB_BPE,
+    JOB_GATHER,
+    JOB_NFC,
+    JOB_DECODE_TOTAL,
+    JOB_DECODE_WRITE
+};
 
 typedef struct {
     const uint8_t *data;
@@ -1403,8 +1412,28 @@ static void copy_stream_u32(uint32_t *dst, const uint32_t *src, size_t n) {
 #endif
 }
 
+static size_t *g_dec_totals;
+static size_t *g_dec_base;
+static int g_dec_skip;
+
 static int run_one_job(worker_t *w, const job_t *job, idvec_t *out) {
 
+    if (job->kind == JOB_DECODE_TOTAL) {
+        const uint32_t *ids = (const uint32_t *)job->data;
+        int err = 0;
+        size_t total =
+            tsimd_decode_ids_count(w->t, ids, job->len, g_dec_skip, &err);
+        if (err) return -1;
+        g_dec_totals[job->doc] = total;
+        return 0;
+    }
+    if (job->kind == JOB_DECODE_WRITE) {
+        const uint32_t *ids = (const uint32_t *)job->data;
+        size_t off = g_dec_base[job->doc];
+        tsimd_decode_ids_write(w->t, ids, job->len, g_dec_skip,
+                               (uint8_t *)job->gdst, &off);
+        return 0;
+    }
     if (job->kind == JOB_NFC) {
         size_t base = w->ws.out_count;
         if (tsimd_encode_chunk_nfc_fused(w->t, &w->ws, job->data, job->len,
@@ -2349,6 +2378,108 @@ static int pool_run(tsimd_pool_t *p, job_t *jobs, idvec_t *outs,
         pthread_cond_wait(&p->done_cv, &p->mu);
     pthread_mutex_unlock(&p->mu);
     return atomic_load(&p->err) ? -1 : 0;
+}
+
+size_t tsimd_decode_chunk_ids = 1u << 16;
+
+int tsimd_tokenizer_decode_parallel(tsimd_tokenizer_t *t,
+                                    const uint32_t *ids, size_t n,
+                                    int skip_special, uint8_t *buf,
+                                    size_t cap, size_t *out_len,
+                                    int threads) {
+    if (out_len) *out_len = 0;
+    if (!t || !ids || !buf) return -1;
+    if (threads <= 0) threads = tsimd_default_threads();
+    if (threads > TSIMD_POOL_MAX) threads = TSIMD_POOL_MAX;
+    if (n < ((size_t)1 << 20) || threads <= 1) {
+        size_t got = 0;
+        int rc = tsimd_tokenizer_decode_into(t, ids, n, skip_special, buf,
+                                             cap, &got);
+        if (rc != 0) return rc;
+        if (out_len) *out_len = got;
+        return 0;
+    }
+    if (ensure_pool(t, threads, n) != 0) return -1;
+    size_t chunk = tsimd_decode_chunk_ids;
+    size_t n_chunks = (n + chunk - 1) / chunk;
+    size_t *totals = malloc(n_chunks * sizeof(size_t));
+    size_t *base = malloc((n_chunks + 1) * sizeof(size_t));
+    idvec_t *dummy = calloc(n_chunks, sizeof(idvec_t));
+    job_t *jobs = malloc(n_chunks * sizeof(job_t));
+    if (!totals || !base || !dummy || !jobs) {
+        free(totals);
+        free(base);
+        free(dummy);
+        free(jobs);
+        return -1;
+    }
+    g_dec_skip = skip_special;
+    g_dec_totals = totals;
+    for (size_t c = 0; c < n_chunks; c++) {
+        size_t off = c * chunk;
+        size_t cnt = n - off < chunk ? n - off : chunk;
+        jobs[c].data = (const uint8_t *)(ids + off);
+        jobs[c].len = cnt;
+        jobs[c].doc = c;
+        jobs[c].kind = JOB_DECODE_TOTAL;
+        jobs[c].special_id = 0;
+        jobs[c].gdst = NULL;
+        jobs[c].gsrc = NULL;
+        jobs[c].gj0 = 0;
+        jobs[c].gj1 = 0;
+    }
+    if (pool_run(t->pool, jobs, dummy, n_chunks, threads - 1) != 0) {
+        free(totals);
+        free(base);
+        free(dummy);
+        free(jobs);
+        return -1;
+    }
+    base[0] = 0;
+    for (size_t c = 0; c < n_chunks; c++) base[c + 1] = base[c] + totals[c];
+    size_t total = base[n_chunks];
+    if (total > cap) {
+        free(totals);
+        free(base);
+        free(dummy);
+        free(jobs);
+        return -1;
+    }
+    g_dec_base = base;
+    for (size_t c = 0; c < n_chunks; c++) {
+        size_t off = c * chunk;
+        size_t cnt = n - off < chunk ? n - off : chunk;
+        jobs[c].data = (const uint8_t *)(ids + off);
+        jobs[c].len = cnt;
+        jobs[c].doc = c;
+        jobs[c].kind = JOB_DECODE_WRITE;
+        jobs[c].gdst = (uint32_t *)buf;
+    }
+    int rc = pool_run(t->pool, jobs, dummy, n_chunks, threads - 1);
+    free(totals);
+    free(base);
+    free(dummy);
+    free(jobs);
+    if (rc != 0) return -1;
+    size_t out = total;
+    if (t->scheme == TSIMD_PRETOK_SPM || t->scheme == TSIMD_PRETOK_GEM4) {
+        size_t r = 0, w = 0;
+        if ((t->spm_dummy_prefix || t->spm_remove_extra) && out >= 3 &&
+            buf[0] == 0xE2 && buf[1] == 0x96 && buf[2] == 0x81)
+            r = 3;
+        for (; r < out;) {
+            if (r + 3 <= out && buf[r] == 0xE2 && buf[r + 1] == 0x96 &&
+                buf[r + 2] == 0x81) {
+                buf[w++] = ' ';
+                r += 3;
+            } else {
+                buf[w++] = buf[r++];
+            }
+        }
+        out = w;
+    }
+    if (out_len) *out_len = out;
+    return 0;
 }
 
 typedef struct {
