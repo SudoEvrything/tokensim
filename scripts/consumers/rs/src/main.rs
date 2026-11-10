@@ -133,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         docs += 1;
         {
             let c = Instant::now();
-            let got = tok.decode_into(&owned, &mut dbuf, false)?;
+            let got = tok.decode_parallel(&owned, &mut dbuf, false, threads)?;
             dec_t += c.elapsed().as_secs_f64();
             checked += 1;
             if got != n || mmap[off..off + n] != dbuf[..got] {

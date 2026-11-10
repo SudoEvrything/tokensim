@@ -65,6 +65,16 @@ extern "C" {
         cap: usize,
         out_len: *mut usize,
     ) -> c_int;
+    fn tsimd_sys_decode_parallel(
+        h: *mut TsimdSys,
+        ids: *const u32,
+        n: usize,
+        skip_special: c_int,
+        buf: *mut u8,
+        cap: usize,
+        out_len: *mut usize,
+        threads: c_int,
+    ) -> c_int;
     fn tsimd_sys_free(p: *mut c_void);
     fn tsimd_default_threads() -> c_int;
     fn tsimd_sys_encode_batch(
@@ -303,6 +313,32 @@ impl Tokenizer {
         Ok(*out_len)
     }
 
+    pub fn decode_parallel(
+        &mut self,
+        ids: &[u32],
+        out: &mut [u8],
+        skip_special: bool,
+        threads: usize,
+    ) -> Result<usize, String> {
+        let mut n: usize = 0;
+        let rc = unsafe {
+            tsimd_sys_decode_parallel(
+                self.handle,
+                ids.as_ptr(),
+                ids.len(),
+                skip_special as c_int,
+                out.as_mut_ptr(),
+                out.len(),
+                &mut n,
+                threads.min(c_int::MAX as usize) as c_int,
+            )
+        };
+        if rc != 0 {
+            return Err("decode_parallel failed (buffer too small?)".to_string());
+        }
+        Ok(n)
+    }
+
     pub fn encode_bound(&self, len: usize) -> usize {
         let mut cap: usize = 0;
         unsafe { tsimd_sys_encode_bound(self.handle, ptr::null(), len, 1, &mut cap) };
@@ -436,6 +472,12 @@ mod tests {
         assert_eq!(&out[..got], &want[..]);
         let mut short = vec![0u8; need - 1];
         assert!(tok.decode_into_len(&ids, &mut short, false, &mut need).is_err());
+        let mut pout = vec![0u8; need];
+        let pgot = tok
+            .decode_parallel(&ids, &mut pout, false, 0)
+            .unwrap();
+        assert_eq!(pgot, want.len());
+        assert_eq!(&pout[..pgot], &want[..]);
     }
 
     #[test]

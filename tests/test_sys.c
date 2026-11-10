@@ -79,6 +79,11 @@ int main(void) {
             check(tsimd_sys_decode_into(h, ids, n_ids, 0, sbuf, need - 1,
                                         &sgot) != 0,
                   "sys decode into must fail on a short buffer");
+            size_t pgot = 0;
+            check(tsimd_sys_decode_parallel(h, ids, n_ids, 0, sbuf, need,
+                                            &pgot, 0) == 0 && pgot == need &&
+                      memcmp(sbuf, text, need) == 0,
+                  "sys decode parallel matches");
             free(sbuf);
             check(tsimd_tokenizer_decode_into(&dt, ids, n_ids, 0, dbuf,
                                               need - 1, &got) != 0,

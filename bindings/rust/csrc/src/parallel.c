@@ -2388,15 +2388,15 @@ int tsimd_tokenizer_decode_parallel(tsimd_tokenizer_t *t,
                                     size_t cap, size_t *out_len,
                                     int threads) {
     if (out_len) *out_len = 0;
-    if (!t || !ids || !buf) return -1;
+    if (!t || !ids) return -1;
     if (threads <= 0) threads = tsimd_default_threads();
     if (threads > TSIMD_POOL_MAX) threads = TSIMD_POOL_MAX;
     if (n < ((size_t)1 << 20) || threads <= 1) {
         size_t got = 0;
         int rc = tsimd_tokenizer_decode_into(t, ids, n, skip_special, buf,
                                              cap, &got);
-        if (rc != 0) return rc;
         if (out_len) *out_len = got;
+        if (rc != 0) return rc;
         return 0;
     }
     if (ensure_pool(t, threads, n) != 0) return -1;
@@ -2438,12 +2438,13 @@ int tsimd_tokenizer_decode_parallel(tsimd_tokenizer_t *t,
     base[0] = 0;
     for (size_t c = 0; c < n_chunks; c++) base[c + 1] = base[c] + totals[c];
     size_t total = base[n_chunks];
-    if (total > cap) {
+    if (out_len) *out_len = total;
+    if (!buf || total > cap) {
         free(totals);
         free(base);
         free(dummy);
         free(jobs);
-        return -1;
+        return total && buf ? -1 : 0;
     }
     g_dec_base = base;
     for (size_t c = 0; c < n_chunks; c++) {

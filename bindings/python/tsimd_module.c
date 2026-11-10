@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <time.h>
 
 typedef struct {
     PyObject_HEAD

@@ -3,6 +3,7 @@ set -o pipefail
 
 set -e
 cd "$(dirname "$0")/.." || exit 1
+ROOT=$PWD
 STAGE=${1:-all}
 cd build
 
@@ -33,10 +34,12 @@ if [ "$STAGE" = "tsan" ] || [ "$STAGE" = "all" ]; then
   cmake --build ../build-tsan-run --target tokensim -j 6 > /dev/null
   echo "== sanitize: TSan parallel routes"
   gcc -fsanitize=thread -O1 -g -I ../include \
+      -DTSIMD_SRC_DIR=\"$ROOT\" \
       ../tests/test_kimi_par_race.c ../build-tsan-run/libtokensim.a \
       -lpthread -lm -o /tmp/tsan-race
   setarch -R /tmp/tsan-race 2>&1 | tail -1
   gcc -fsanitize=thread -O1 -g -I ../include \
+      -DTSIMD_SRC_DIR=\"$ROOT\" \
       ../tests/test_unigram_par.c ../build-tsan-run/libtokensim.a \
       ../tests/util.c -lpthread -lm -o /tmp/tsan-uni
   setarch -R /tmp/tsan-uni 2>&1 | tail -1

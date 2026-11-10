@@ -175,6 +175,14 @@ int tsimd_sys_encode_bound(tsimd_sys *h, const uint8_t *data, size_t len,
     return 0;
 }
 
+int tsimd_sys_decode_parallel(tsimd_sys *h, const uint32_t *ids, size_t n,
+                              int skip_special, uint8_t *buf, size_t cap,
+                              size_t *out_len, int threads) {
+    if (!h) return -1;
+    return tsimd_tokenizer_decode_parallel(&h->tok, ids, n, skip_special, buf,
+                                           cap, out_len, threads);
+}
+
 int tsimd_sys_decode_into(tsimd_sys *h, const uint32_t *ids, size_t n,
                           int skip_special, uint8_t *buf, size_t cap,
                           size_t *out_len) {
