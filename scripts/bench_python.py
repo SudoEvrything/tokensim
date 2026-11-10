@@ -13,6 +13,7 @@ excluded; best over the warm reps).
 import sys
 import time
 import array
+import os.path
 
 def array_frombytes(raw):
     a = array.array("I")
@@ -39,14 +40,21 @@ def main():
             def enc(b):
                 return tok.encode_threads(b, threads)
         elif kind == "tsimd_into":
-            with open(path, "rb") as f:
-                bound = tok.encode_bound(len(f.read()))
-            out = bytearray((bound + 3) & ~3)
-            state = {"n": 0}
+            bound = tok.encode_bound(os.path.getsize(path))
+            if bound > (1 << 30):
+                print("into skipped: bound %.1f GiB > 1 GiB cap; "
+                      "the par protocol runs" % (bound / 2**30))
+                kind = "tsimd_par"
 
-            def enc(b):
-                state["n"] = tok.encode_threads_into(b, out, threads)
-                return out
+                def enc(b):
+                    return tok.encode_threads(b, threads)
+            else:
+                out = bytearray((bound + 3) & ~3)
+                state = {"n": 0}
+
+                def enc(b):
+                    state["n"] = tok.encode_threads_into(b, out, threads)
+                    return out
         else:
             def enc(b):
                 return array_frombytes(tok.encode_bytes(b))

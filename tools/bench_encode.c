@@ -110,6 +110,8 @@ int main(int argc, char **argv) {
             scheme = TSIMD_PRETOK_DEEPSEEK;
         } else if (strcmp(scheme_name, "nemo") == 0) {
             scheme = TSIMD_PRETOK_NEMO;
+        } else if (strcmp(scheme_name, "kimi") == 0) {
+            scheme = TSIMD_PRETOK_KIMI;
         } else {
             fprintf(stderr, "unknown scheme: %s\n", scheme_name);
             return 2;

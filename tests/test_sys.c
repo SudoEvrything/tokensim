@@ -287,6 +287,51 @@ int main(void) {
     check(h != NULL, "open t5");
     if (h) {
         check(tsimd_sys_vocab_size(h) == 32000, "t5 vocab size");
+        size_t big_len = 16u << 20;
+        uint8_t *big = malloc(big_len);
+        check(big != NULL, "alloc t5 16MiB input");
+        if (big) {
+            const char *pat = "una mattina mi svegliai; comunisme, caf\xc3\xa9, "
+                              "\xe6\x9d\xb1\xe4\xba\xac na\xc3\xafve "
+                              "fa\xc3\xa7ade. ";
+            size_t plen = strlen(pat);
+            for (size_t i = 0; i < big_len; i++)
+                big[i] = (uint8_t)pat[i % plen];
+            tsimd_pretok_scheme_t sch = TSIMD_PRETOK_GPT2;
+            tsimd_tokenizer_t ref;
+            check(tsimd_tokenizer_load_model(&ref, TSIMD_MODEL_SENTENCEPIECE,
+                                             T5, NULL, &sch, NULL, 0) == 0,
+                  "load t5 direct reference");
+            uint32_t *sids1 = NULL;
+            size_t sn1 = 0;
+            check(tsimd_sys_encode(h, big, big_len, 1, &sids1, &sn1) == 0,
+                  "t5 sys encode 1t past the into cap");
+            tsimd_token_sequence_t r1;
+            check(tsimd_tokenizer_encode(&ref, big, big_len, &r1) == 0,
+                  "t5 seq reference 1t");
+            check(sn1 == r1.count &&
+                      (sn1 == 0 || memcmp(sids1, r1.ids,
+                                          sn1 * sizeof(uint32_t)) == 0),
+                  "t5 sys 1t ids equal the seq reference");
+            tsimd_token_sequence_free(&r1);
+            tsimd_sys_free(sids1);
+            uint32_t *sids4 = NULL;
+            size_t sn4 = 0;
+            check(tsimd_sys_encode(h, big, big_len, 4, &sids4, &sn4) == 0,
+                  "t5 sys encode 4t past the into cap");
+            tsimd_token_sequence_t r4;
+            check(tsimd_tokenizer_encode_parallel(&ref, big, big_len, 4,
+                                                  &r4) == 0,
+                  "t5 parallel reference 4t");
+            check(sn4 == r4.count &&
+                      (sn4 == 0 || memcmp(sids4, r4.ids,
+                                          sn4 * sizeof(uint32_t)) == 0),
+                  "t5 sys 4t ids equal the parallel reference");
+            tsimd_token_sequence_free(&r4);
+            tsimd_sys_free(sids4);
+            free(big);
+            tsimd_tokenizer_free(&ref);
+        }
         tsimd_sys_close(h);
     }
     h = tsimd_sys_open(QWEN, "json", "auto", err, sizeof err);

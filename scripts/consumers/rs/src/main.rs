@@ -92,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fsz = std::fs::metadata(&args[4])?.len();
     let mmap = unsafe { Mmap::map(&File::open(&args[4])?)? };
     let mut dbuf = vec![0u8; doc_bytes + 64];
-    let mut ebuf = vec![0u32; doc_bytes / 2 + 64];
+    let mut ebuf = vec![0u32; tok.encode_bound(doc_bytes)];
     mmap.advise(memmap2::Advice::Sequential)?;
 
     let mut h = FNV0;

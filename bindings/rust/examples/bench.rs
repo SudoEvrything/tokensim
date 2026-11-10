@@ -21,7 +21,14 @@ fn main() {
     let threads: usize = a[4].parse().unwrap();
     let data = fs::read(&a[5]).expect("read corpus");
     let reps: usize = a.get(6).map(|s| s.parse().unwrap()).unwrap_or(1);
-    let into = std::env::var("BENCH_INTO").is_ok();
+    let into = std::env::var("BENCH_INTO").is_ok()
+        && tok.encode_bound(data.len()) <= (1usize << 28);
+    if std::env::var("BENCH_INTO").is_ok() && !into {
+        eprintln!(
+            "into skipped: bound {} GiB > 1 GiB cap",
+            tok.encode_bound(data.len()) >> 28
+        );
+    }
     let mut buf = if into {
         vec![0u32; tok.encode_bound(data.len())]
     } else {

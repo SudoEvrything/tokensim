@@ -99,6 +99,32 @@ static int sys_encode(tsimd_sys *h, const uint8_t *data, size_t len,
                       int threads, const tsimd_token_sequence_t **out) {
     if (!h) return -1;
     size_t bound = tsimd_tokenizer_encode_bound(&h->tok, len);
+    if (bound > ((size_t)1 << 28)) {
+        tsimd_token_sequence_t seq;
+        int big_rc = (threads != 1)
+                         ? tsimd_tokenizer_encode_parallel(&h->tok, data, len,
+                                                           threads, &seq)
+                         : tsimd_tokenizer_encode(&h->tok, data, len, &seq);
+        if (big_rc != 0) return -1;
+        if (h->reuse.cap < seq.count) {
+            size_t cap = h->reuse.cap ? h->reuse.cap : 4096;
+            while (cap < seq.count) cap *= 2;
+            uint32_t *grown =
+                tsimd_xrealloc(h->reuse.ids, cap * sizeof(uint32_t));
+            if (!grown) {
+                tsimd_token_sequence_free(&seq);
+                return -1;
+            }
+            h->reuse.ids = grown;
+            h->reuse.cap = cap;
+        }
+        if (seq.count)
+            memcpy(h->reuse.ids, seq.ids, seq.count * sizeof(uint32_t));
+        h->reuse.count = seq.count;
+        tsimd_token_sequence_free(&seq);
+        *out = &h->reuse;
+        return 0;
+    }
     if (h->reuse.cap < bound) {
         size_t cap = h->reuse.cap ? h->reuse.cap : 4096;
         while (cap < bound) cap *= 2;
