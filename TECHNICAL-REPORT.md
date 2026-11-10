@@ -91,13 +91,16 @@ input (mmap view) -> added-token split -> pretokenize -> encode -> uint32 ids
 
 Each stage is simple to describe.
 
-The **added-token split** scans the input for special strings
-(things like `<|endoftext|>`). The scan is a single left-to-right
-pass indexed by the first byte of each special string, so its cost
-grows with the number of hits, not with the size of the
-special-token table. A hit hard-splits the input: the special
-token becomes one id, and the bytes between hits are separate
-jobs.
+The **added-token split** scans the input for special strings -
+fixed text like `<|endoftext|>` that must become exactly one id.
+The scan is a single left-to-right pass, indexed by the first byte
+of each special string, so its cost grows with the number of
+matches found, not with the size of the table. When the scan finds
+a match, it cuts the input at that point: the matched text leaves
+the pipeline as one finished id, and the text on either side
+continues as ordinary content. If a document contains no special
+strings - the common case - the scan is one quick pass and the
+pipeline receives the whole input uncut.
 
 The **pretokenizer** applies the model family's split rules. These
 rules say where a merge may not cross - for example, a merge may
@@ -111,14 +114,21 @@ matcher until an ASCII-clean window appears, so multi-byte text is
 handled without slowing the ASCII path.
 
 The **encode** stage turns each piece into ids. Most families use
-BPE: start from the bytes of the piece, then repeatedly merge the
-adjacent pair with the lowest merge rank until no merge applies.
-The merge engine picks its form by size: short pieces (up to 64
+BPE, and BPE is easiest to understand as a lookup-driven merging
+game. The model ships a merge table: an ordered list of byte pairs,
+where the entries at the top (rank 0, rank 1, ...) are the pairs
+the model learned to fuse first. Encoding one piece starts from
+its raw bytes; at every step the encoder looks at all adjacent
+pairs in the piece, finds the one that sits highest in that list -
+the best rank, which is the smallest rank number - and fuses those
+two symbols into one. Repeat until no adjacent pair of the piece
+appears in the table at all. What remains is the piece's ids. The
+merge engine picks its form by size: short pieces (up to 64
 symbols) take a cache-friendly linear scan; longer pieces take a
 rank-bucket queue; a lazy-deletion min-heap remains as the
 fallback. One family group (T5, XLM-R) uses a different algorithm,
-unigram, which picks the best segmentation by score. tokensim
-implements both.
+unigram, which instead scores many candidate segmentations and
+picks the best-scoring one. tokensim implements both.
 
 The result is an array of `uint32` ids. The decoder reverses the
 whole chain exactly, and it needs no side tables and no state,
@@ -200,9 +210,9 @@ tiktoken (OpenAI's Rust engine), HuggingFace tokenizers, and
 sentencepiece (Google's). Thirteen families are pinned at multiple
 thread counts, and each pin fixes both the token count and a
 Fibonacci hash of the id stream, so a reorder alone cannot pass.
-The pins themselves must be trustworthy - an early parity
-"failure" turned out to be a pin generated from our own output
-(run 356), which proved nothing. Pins now come from the
+The pins themselves must be trustworthy. An early parity
+"failure" turned out to be a pin generated from our own output,
+which proved nothing. Pins now come from the
 independent references only, with HuggingFace as the generator.
 
 **Layer 3 - the corpus anchors.** Whole corpora are hashed per
@@ -231,9 +241,9 @@ accepts the tie instead of failing it.
 under ASan and UBSan (memory errors and undefined behavior), and
 the parallel routes run under TSan (data races). Both are clean.
 The race checking is not decorative: one cache-write ordering bug
-was found only by a forced-collision hammer test, and the rare
-race FIND C reproduced live during closure stress before its fix
-(the full story is section 3.11).
+was found only by a forced-collision hammer test, and one rare
+race reproduced live under deliberate oversubscription before its
+fix (the full story is section 3.11).
 
 **Layer 6 - the battery and its gates.** The full verification
 battery chains every layer: build, parity, exhaustive algebra,
@@ -300,15 +310,17 @@ piece's encoding cannot depend on the bytes in another piece. Everything else - 
 digit runs, newlines - hard-splits the input into separate jobs
 trivially. The invariant "parallel output equals sequential
 output" is tested at every thread count, and the test caught real
-bugs: the FFFD-expansion estimate error (run 364) and the
-segmented-NFC mode that was not exact (runs 190–193). The deeper
+bugs: an output-length estimate that ignored the unicode
+replacement-character expansion, and a segmented-NFC mode that was
+not exact. The deeper
 rule the campaign recorded: **never compare a chunked encode
 against a whole-buffer encode** - different engines, different
 claims. Compare a chunked encode against the same chunked encode.
 
 ### 3.4 The leftmost tie must win: merge order is part of the semantics
 
-BPE is greedy: merge the lowest-rank adjacent pair, repeat. When
+BPE is greedy: at every step, merge the adjacent pair with the
+best rank - the smallest rank number - then repeat. When
 several pairs share the same rank, the reference implementations
 merge the leftmost one first. That tie order is not a detail - it
 changes the output. The intuition: two overlapping pairs of the
@@ -340,8 +352,8 @@ so correctness never depends on the cache at all.
 ### 3.6 Trust CPU reports, but make the CPU prove them
 
 CPUID says what the silicon supports. The OS decides what is
-enabled, and the two can disagree - the documented case is
-AVX-512 shipped but fused off, where the first instruction faults.
+enabled, and the two can disagree: some CPUs report AVX-512 while
+it is fused off, and the first instruction faults.
 tokensim's answer: after CPUID says yes, run a tiny AVX-512
 kernel under a crash handler once. Fault means permanent downgrade
 to AVX2, decided once, remembered. The detection itself uses raw
@@ -404,7 +416,7 @@ fuzzer, because it produces false confidence.
 
 ### 3.11 A waiter that only yields never sleeps
 
-The one rare race (FIND C) reproduced live during closure stress:
+One rare race reproduced live under deliberate oversubscription:
 under concurrent load, 8 of 10 threads spun in `sched_yield`
 loops while the one-shot builders they waited for were starved of
 CPU. `sched_yield` says "run someone else now, but I am ready
@@ -421,7 +433,7 @@ sleep is for waiting.
 Decoding maps ids back to bytes with no side tables, no state.
 This forced several decisions that look like over-engineering:
 the byte-fallback seeds, the added-token conventions, the detoken
-parity against the reference decoders (run 206). The payoff is
+parity against the reference decoders. The payoff is
 that encode and decode can be tested separately and the round-trip
 fuzzer covers arbitrary bytes.
 
@@ -429,38 +441,58 @@ fuzzer covers arbitrary bytes.
 
 ## 04 - The model families
 
-Fourteen families, each with its own encoding contract. This
-section records what makes each distinctive, how special tokens
-are handled, what the campaign won, and what it cost.
+Fourteen families, each with its own encoding contract. A
+"family" here means one tokenizer definition - the split rules,
+the merge table or the unigram scores, the special tokens - as
+shipped with a given model. Different model releases share a
+family (GPT-4 and Llama-3 both use the cl100k shape), and one
+model line can switch families between versions (Mistral did).
+This section records, for each family, what model ships it, what
+its split rules do in plain terms, and what the development
+campaign won and cost while implementing it byte-exactly.
 
 ### GPT-2 (`encoder.json` + `vocab.bpe`)
 
-The classic byte-level BPE: every byte is mapped to a visible
-unicode stand-in so merges never break UTF-8, and the merge table
-carries its own order, separate from ids. tokensim decodes the
-alphabet once at load and never touches strings again. Special
-tokens are scanned in one left-to-right pass indexed by first
-byte; a hit hard-splits the input. This family pushed the
-zero-copy parallel path and the split-invariance proof style that
-the whole parallel engine rests on.
+The 2019 GPT-2's tokenizer, still the template every byte-level
+BPE follows. Two files define it: `encoder.json` maps strings to
+ids, and `vocab.bpe` is the ordered merge table. The trick that
+makes it "byte-level": every one of the 256 possible bytes is
+first mapped to a printable unicode stand-in, so the merges
+operate on visible characters and can never break a UTF-8
+sequence mid-character. The merge table carries its own order,
+separate from the id numbering - a detail that matters for the
+tie rules. tokensim decodes the stand-in alphabet once at load
+and never touches strings again. Special tokens are scanned in
+one left-to-right pass indexed by first byte; a hit hard-splits
+the input. This family pushed the zero-copy parallel path and
+the split-invariance proof style that the whole parallel engine
+rests on.
 
 ### cl100k (GPT-3.5 / GPT-4; Llama-3 reuses the pattern)
 
-The pattern that introduced digit grouping in threes
-(`\p{N}{1,3}`), case-insensitive contraction suffixes, and an
-optional punctuation prefix on words. Implemented as bitmask
-algebra with absorption carries across 64-byte windows. The
-campaign proved here that the mask walker and the scalar matcher
-are interchangeable (run 271), which is what lets the serve path
-pick either. Llama-3 ships the same regex and is detected by
-exact-match at load.
+The tokenizer behind GPT-3.5-turbo, GPT-4, and the OpenAI
+embedding models - and, adopted later, the Llama-3 models. Its
+pretokenizer regex introduced three ideas the older GPT-2
+pattern lacked. Digits are grouped in runs of at most three
+(`\p{N}{1,3}`), so a long number splits into three-digit chunks
+instead of one giant piece. Contraction suffixes like `'s` match
+case-insensitively, so `Don't` and `DON'T` tokenize the same
+way at the suffix. And a word may carry an optional punctuation
+prefix (`"hello` tokenizes as one piece plus the word).
+Implemented as bitmask algebra with absorption carries across
+64-byte windows. The campaign proved here that the mask walker
+and the scalar matcher are interchangeable, which is what lets
+the serve path pick either. Llama-3 ships the same regex and is
+detected by exact-match at load.
 
 ### o200k (GPT-4o)
 
-The most intricate pattern: letter runs with a case-phase
-transition (upper→lower, one allowed), contraction suffixes that
-glue even when the letter run is empty, and a punctuation run that
-re-absorbs newlines and slashes after them. The first design -
+GPT-4o's tokenizer, and the most intricate split pattern in the
+set. Letter runs allow one case-phase transition (upper to
+lower); contraction suffixes glue onto words even when the
+letter run is empty; and a punctuation run re-absorbs certain
+characters - newlines and slashes - that follow it. The first
+design -
 full mask algebra - failed and was replaced by a flat scanner,
 which then needed five semantic fixes found by differential
 testing. The family carries the campaign's most-quoted corpus pin.
@@ -470,107 +502,123 @@ rewrite turned "millions of runs clean" into real coverage.
 
 ### deepseek (tokenizer.json, byte_fallback)
 
-A CJK-aware BPE: Han-script runs become isolated pieces;
-everything else flows through byte-fallback BPE. The same
-three-stage structure survived unchanged into DeepSeek-V3.1, and
-the corpus hash for the V3.1 file came back identical to the V3
-file, byte for byte. This family produced the campaign's sharpest
-honesty moment: a divergence first blamed on the reference turned
-out to be our bug, localized to one predicate, and the fix came
-with the zero-copy parallel path it motivated. Special tokens
-follow HF semantics: non-special added tokens are BPE-encoded, not
-emitted as single ids.
+DeepSeek's tokenizer, built for text that mixes Chinese and
+English. Han-script runs become isolated pieces (a merge must
+not cross in or out of a Han run); everything else flows through
+byte-fallback BPE, where any byte the merge table cannot place
+becomes its own id. The same three-stage structure survived
+unchanged into DeepSeek-V3.1, and the corpus hash for the V3.1
+file came back identical to the V3 file, byte for byte. This
+family produced the campaign's sharpest honesty moment: a
+divergence first blamed on the reference turned out to be our
+bug, localized to one predicate, and the fix came with the
+zero-copy parallel path it motivated. Special tokens follow HF
+semantics: non-special added tokens are BPE-encoded, not emitted
+as single ids.
 
 ### Qwen 2.5 and Qwen 3 (tokenizer.json)
 
-Same JSON family shape with per-single-digit grouping in some
-contexts, carried through the mask algebra as an explicit flag.
-Qwen 3 uses the same encoding, and the corpus hash came back
-identical to the Qwen 2.5 file. This family forced the NUL-key
-hardening (added-token keys can contain embedded NUL bytes) and
-the cache-hostile corpus probes that measured the caches under
-adversarial repetition.
+Alibaba's Qwen model line, another JSON-defined byte-fallback BPE.
+Its signature rule: digits grouped one per piece in some contexts
+( finer than cl100k's three-at-a-time), carried through the mask
+algebra as an explicit flag. Qwen 3 uses the same encoding, and
+the corpus hash came back identical to the Qwen 2.5 file. This
+family forced the NUL-key hardening (added-token keys can contain
+embedded NUL bytes) and the cache-hostile corpus probes that
+measured the caches under adversarial repetition.
 
 ### Nemotron / Nemotron-Nano (tokenizer.json)
 
-The serve path's home family, and the source of two
-campaign-defining finds. First, the self-referential parity pin:
-a "divergence" turned out to be a pin generated from our own
-output; the HF-confirmed truth was the opposite of the pin's
-assumption. Second, the walker cap-exit class: one missing
-loop-exit guard produced both a multi-thread wedge and two
-full-corpus divergences, and the same one-line guard closed the
-class in all five mask schemes. After both fixes, 6t = 1t = 16t,
-identical to the last id.
+NVIDIA's Nemotron model line, the family the inference serve path
+was tuned on, and the source of two campaign-defining finds.
+First, the self-referential parity pin: a "divergence" turned out
+to be a pin generated from our own output; the HF-confirmed truth
+was the opposite of the pin's assumption. Second, the walker
+cap-exit class: one missing loop-exit guard produced both a
+multi-thread wedge and two full-corpus divergences, and the same
+one-line guard closed the class in all five mask schemes. After
+both fixes, 6t = 1t = 16t, identical to the last id.
 
 ### SmolLM2 and SmolLM3 (tokenizer.json)
 
-The beneficiary of the gpt2-pattern SIMD spanner: 111-125 MB/s
-before, 390-420 MB/s after, the clearest single example of
-"profile one family, land the shape for all". SmolLM3 loads
-through the same cl100k pattern family. The lineage also carried
-the 16-thread minus-one id class that the walker cap fix closed.
-With the bucket queue, smollm2 runs 541.8 / 2257.2 / 2883.1 MB/s
-at 1/6/10 threads, +47%/+109% at 6 threads over the heap era.
+HuggingFace's small-model line, the clearest beneficiary of the
+gpt2-pattern SIMD spanner: 111-125 MB/s before, 390-420 MB/s
+after - the clearest single example of "profile one family, land
+the shape for all". SmolLM3 loads through the same cl100k pattern
+family. The lineage also carried the 16-thread minus-one id class
+that the walker cap fix closed. With the bucket queue, smollm2
+runs 541.8 / 2257.2 / 2883.1 MB/s at 1/6/10 threads, +47%/+109%
+at 6 threads over the heap era.
 
 ### GLM-4 and GLM-5.3 (tokenizer.json)
 
-No unusual rules, which made it the clean control family for the
-cache and parallel levers. The private per-worker caches and the
-bucket queue both measured here first. GLM-5.3 loads through the
-cl100k pattern family and its corpus came back EXACT on first
-contact. The 6-thread warm row improved 14% when the bucket queue
-became the default.
+Zhipu's GLM model line. No unusual rules, which made it the clean
+control family for the cache and parallel levers: with nothing
+distinctive to handle, any measurement change was the lever's
+own effect. The private per-worker caches and the bucket queue
+both measured here first. GLM-5.3 loads through the cl100k
+pattern family and its corpus came back EXACT on first contact.
+The 6-thread warm row improved 14% when the bucket queue became
+the default.
 
 ### Gemma 3-4B (tokenizer.json, metaspace pretokenizer)
 
-Gemma's pretokenizer is not regex at all: a metaspace transform
-(space becomes the ▁ character) plus byte-fallback BPE, with a
-normalizer that expands invalid bytes to the U+FFFD replacement
-character. Gemma 3 loads through the same GEM4 shape as Gemma 4. That expansion is the family's
-signature hazard - the parallel path once estimated output length
-without it and produced exactly-half outputs until per-job local
-buffers with actual-length compaction fixed it. Gemma 3 also
-hosted the windowed-DP saga: the proof that no chunked unigram DP
-is exact, the boundary resolution, and the exact carry that made
-the windowed form safe to promote.
+Google's Gemma 3 4B model. Its pretokenizer is not regex at all:
+a metaspace transform (every space becomes the ▁ character
+before splitting) plus byte-fallback BPE, with a normalizer that
+expands invalid bytes to the U+FFFD replacement character. Gemma
+3 loads through the same GEM4 shape as Gemma 4. That expansion is
+the family's signature hazard - the parallel path once estimated
+output length without it and produced exactly-half outputs until
+per-job local buffers with actual-length compaction fixed it.
+Gemma 3 also hosted the windowed-DP saga: the proof that no
+chunked unigram DP is exact, the boundary resolution, and the
+exact carry that made the windowed form safe to promote.
 
 ### Gemma 4 (metaspace + byte-fallback)
 
-The slowest family at the start (7–8 MB/s) and the clearest
-demonstration that the method closes gaps: prefolded pair
-priorities collapsed an 89%-in-merge profile, the long-unit cache
-closed the one-thread gap, and a group-bucket variant was built,
-verified, and disproven here. Gemma 4 also exposed the bucket
-queue's final bug class through degenerate no-pretokenizer units.
-With the bucket landed: 151.9 MB/s at 1t, +16% over the heap
-default.
+The newer Gemma generation, the slowest family at the start
+(7-8 MB/s) and the clearest demonstration that the method closes
+gaps: prefolded pair priorities collapsed an 89%-in-merge
+profile, the long-unit cache closed the one-thread gap, and a
+group-bucket variant was built, verified, and disproven here.
+Gemma 4 also exposed the bucket queue's final bug class through
+degenerate no-pretokenizer units. With the bucket landed: 151.9
+MB/s at 1t, +16% over the heap default.
 
 ### Mistral (sentencepiece BPE, and the newer cl100k generation)
 
-The family that taught "verify the model kind": the mistral file
-is a sentencepiece BPE, not a unigram, and the parallel path once
-routed it through the wrong normalizer, so the ids decoded to the
-raw byte count while the sequential path produced 2.75x the bytes.
-After the fix, the family drove the seam-scanner and stripe-target
-levers (+17-55% combined) and hosts the giant-word fixture that
-guards the merge engine against quadratic regressions. The newer
-Mistral-Small-2501 generation switched to the cl100k pattern
-family, and its corpus came back EXACT on first contact.
+Mistral AI's model line, and the family that taught "verify the
+model kind": the mistral 7B file is a sentencepiece BPE - not a
+unigram, as its file format invites you to assume - and the
+parallel path once routed it through the wrong normalizer, so
+the ids decoded to the raw byte count while the sequential path
+produced 2.75x the bytes. After the fix, the family drove the
+seam-scanner and stripe-target levers (+17-55% combined) and
+hosts the giant-word fixture that guards the merge engine
+against quadratic regressions. The newer Mistral-Small-2501
+generation switched to the cl100k pattern family, and its corpus
+came back EXACT on first contact.
 
 ### XLM-R (sentencepiece unigram)
 
-The unigram DP's home family: the two-level dynamic-programming
-walk over a double-array trie, the unknown-token accounting, and
-the boundary work. The unigram campaign's headline belongs here:
-1.33-1.44x faster than the reference sentencepiece on this
-machine. XLM-R and T5 run the ladder at one round by design:
-their warm state equals cold, and the multi-round path is
-memory-capped.
+Facebook's XLM-RoBERTa, the multilingual model whose tokenizer
+runs sentencepiece's unigram algorithm: instead of merging pairs,
+the encoder holds thousands of candidate pieces with log-scores
+and picks the segmentation with the best total score by dynamic
+programming. This is the unigram DP's home family: the two-level
+dynamic-programming walk over a double-array trie, the
+unknown-token accounting, and the boundary work. The unigram
+campaign's headline belongs here: 1.33-1.44x faster than the
+reference sentencepiece on this machine. XLM-R and T5 run the
+ladder at one round by design: their warm state equals cold, and
+the multi-round path is memory-capped.
 
 ### T5 (sentencepiece unigram)
 
-The family that forced the float32 tie rule. Two segmentations
+Google's T5, the text-to-text model whose tokenizer introduced
+the unigram algorithm to a wide audience - and the family that
+forced the float32 tie rule. Two segmentations
 whose scores differ by less than float32 can represent tie
 exactly; the reference resolves one way and our engine the other,
 and both are correct at their own precision. The resolution:
@@ -581,10 +629,12 @@ including a negative control that must still abort.
 
 ### Kimi K2 (tiktoken-format, moonshot's published pattern)
 
-The newest family and the most distinctive pattern: class
-intersections (`\p{Lu}&&[^\p{Han}]`), isolated Han runs, and
-o200k-style contractions. Verified 12/12 against tiktoken's
-engine plus a full-corpus EXACT. Kimi drove four structural wins:
+Moonshot AI's Kimi K2, the newest family and the most
+distinctive pattern: character-class intersections
+(`\p{Lu}&&[^\p{Han}]` - an uppercase letter that is not Han
+script), isolated Han runs, and o200k-style contractions, in a
+tiktoken-format file. Verified 12/12 against tiktoken's engine
+plus a full-corpus EXACT. Kimi drove four structural wins:
 the private per-worker caches (2.8–3.8x at multi-thread), the
 window-batch mask algebra (the span-walker alternative measured
 45% slower), the output-bound fallback (an 18x expansion bound),
@@ -622,65 +672,71 @@ AVX-512 paths are verified under the SDE emulator instead. Absolute
 throughput on your machine will differ with the silicon; the
 ratios against the reference engines are the durable claim.
 Published numbers from other projects are context, never
-comparisons. The run-by-run history behind every number here, with
-the failed attempts and the reverted designs, lives in the
-internal campaign report (CAMPAIGN-TECHNICAL-REPORT.md).
+comparisons. Every number in this section is produced by a
+committed script under `scripts/`, so each measurement can be
+re-run from a fresh clone.
 
 **Family throughput** (MB/s, the warm protocol, the 476 MB owt
-corpus, the bucket queue as the default merge engine):
+corpus, the bucket queue as the default merge engine; all rows
+measured fresh for this report in one session):
 
 | Family | 1 thread | 6 threads | 10 threads |
 | --- | --- | --- | --- |
-| o200k | 567.3 | 2501.4 | 3560.6 |
-| cl100k | 585.2 | 2732.6 | 3672.7 |
-| deepseek | 538.2 | 2392.4 | 3029.5 |
-| qwen2.5 | 457.0 | 1921.7 | 2436.8 |
-| nemotron | 529.4 | 2244.8 | 2817.4 |
-| glm4 | 536.6 | 2176.0 | 2655.5 |
-| gemma4 | 151.9 | 377.4 | 373.7 |
-| gemma3-4b | 127.8 | 353.3 | 385.9 |
-| smollm2 | 541.8 | 2257.2 | 2883.1 |
-| mistral | 153.4 | 341.5 | 316.1 |
-| kimi | 107.1 | 412.7 | 448.6 |
-| xlmr / t5 | 29.6 / 26.3 | 33.2 / 43.4 | 41.6 / 42.2 |
+| o200k | 567.0 | 2705.5 | 3500.8 |
+| cl100k | 566.9 | 2722.3 | 3545.5 |
+| deepseek | 525.7 | 2366.7 | 2921.4 |
+| qwen2.5 | 448.1 | 1924.6 | 2332.2 |
+| nemotron | 525.3 | 2229.1 | 2510.8 |
+| glm4 | 524.2 | 2063.3 | 2516.5 |
+| gemma4 | 148.9 | 343.1 | 325.0 |
+| gemma3-4b | 134.0 | 328.0 | 342.3 |
+| smollm2 | 517.1 | 2054.4 | 2700.0 |
+| mistral | 150.4 | 309.4 | 315.5 |
+| kimi | 103.4 | 397.7 | 557.8 |
+| xlmr / t5 | 32.1 / 26.2 | 43.6 / 33.6 | 34.2 / 44.9 |
 
-All ten-thread rows were measured fresh for this report under the
-same protocol. Three shapes are worth reading from the table. The
+Three shapes are worth reading from the table. The
 byte-level families scale past 6 threads on the strength of the
 performance cores. The metaspace families (gemma4, gemma3-4b,
 mistral) flatten after 6 threads: their per-piece overhead stops
-amortizing once the pieces get small. xlmr and t5 peak early (the
-10-thread rows sit at or below the 6-thread rows) because the
-unigram DP is a dependency chain that extra workers split thinly.
+amortizing once the pieces get small. The unigram families are
+the dependency-chain case: xlmr peaks at 6 threads and t5 gains
+slowly, because the dynamic-programming walk gives extra workers
+less to split.
 
 The bucket queue's promotion moved the unigram and metaspace
 families: smollm2 +47%/+109%, gemma3-4b +38%, gemma4 +16%, glm4
 +14% at 6 threads, with the byte-level families within noise of
 the heap era. The 10-thread column shows the same ordering: the
-byte-level families reach 3.0 to 3.7 GB/s, the metaspace families
-level off in the 310 to 450 MB/s band, and the ratios against
+byte-level families reach 2.3 to 3.5 GB/s, the metaspace families
+level off in the 310 to 560 MB/s band, and the ratios against
 gigatoken hold at 10 threads (the next table).
 
 **Against gigatoken, the Rust reference engine this campaign
-measures against** (the same-window protocol) -
-ours/theirs ratio, cold and warm, threads 1/6/10:
+measures against** (the same-window protocol, the 476 MB owt
+corpus) - ours/theirs ratio, cold and warm, threads 1/6/10:
 
-| Threads | owt cold | owt warm | docs cold | docs warm |
-| --- | --- | --- | --- | --- |
-| 1 | 0.92 | 0.91 | 0.92 | 0.90 |
-| 6 | 1.05 | 1.18 | 0.96 | 1.26 |
-| 10 | 0.98 | 1.34 | 0.92 | 1.39 |
+| Threads | cold | warm |
+| --- | --- | --- |
+| 1 | 0.90 | 0.87 |
+| 6 | 0.99 | 1.12 |
+| 10 | 1.04 | 1.45 |
 
-At 10 threads spanning P and E cores: parity cold, **1.34–1.39x
-warm**. The single-thread cold gap (0.90–0.92x) is the recorded
-honest frontier. Warm - the state sustained pipelines actually
-run in - is ours ahead at every 6- and 10-thread point.
+At 10 threads spanning the performance and the efficiency cores:
+parity cold, **1.45x warm**. The single-thread gap (0.87-0.90x)
+is the recorded honest frontier. Warm - the state sustained
+pipelines actually run in - is ours ahead at every 6- and
+10-thread point. An earlier measurement window on the document
+corpus showed the same shape (warm 1.26-1.39x at 6-10 threads).
 
-**The final battery** (exit 0): build clean; parity 13/13 at 1 and
-4 threads; exhaustive algebra 0 mismatches; full corpora 4/4
-EXACT; 13 fuzz families at 60 s plus 13 parallel budgets clean;
-leak probe flat; the C/Python/Rust wrapper arms run; the reference
-ladder above.
+**The final battery** (exit 0): build clean; ctest 102/102; parity
+13/13 at 1 and 4 threads; exhaustive algebra 0 mismatches; the
+thread matrix PASS; 13 fuzz families at 90 s clean (32 arms, 0
+mismatches); the leak probe stable; ASan, UBSan and TSan clean;
+the clang build green; the AVX-512 SDE gate PASS; the arm64 gate
+PASS; the C/Python/Rust consumers tokenize five corpora with every
+document decoded and byte-compared (15/15); the reference ladder
+above.
 
 **Against the scalar reference engines, tiktoken and the official
 HF deepseek tokenizer** (the same 16 MB

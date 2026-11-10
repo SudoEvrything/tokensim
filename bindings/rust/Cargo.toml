@@ -1,8 +1,8 @@
 [package]
 name = "tokensim"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
-description = "Safe Rust wrapper for TokenSIMD, a high-throughput BPE tokenizer"
+description = "Byte-exact tokenizer engine for GPT-2, GPT-4, Llama-3, DeepSeek, Qwen, Gemma and more - SIMD pretokenizer, parallel encode and decode"
 repository = "https://github.com/SudoEvrything/tokensim"
 homepage = "https://github.com/SudoEvrything/tokensim"
 documentation = "https://docs.rs/tokensim"

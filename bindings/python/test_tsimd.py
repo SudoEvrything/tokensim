@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tokensim
 import tsimd
 
-assert tsimd.version == tokensim.version == "1.0.3"
+assert tsimd.version == tokensim.version == "1.0.4"
 assert tsimd.Error is tokensim.Error
 assert tsimd.Tokenizer is tokensim.Tokenizer
 

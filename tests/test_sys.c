@@ -50,7 +50,7 @@ int main(void) {
         return 1;
     }
     check(tsimd_sys_vocab_size(h) == 100256, "cl100k vocab size");
-    check(strcmp(tsimd_sys_version(), "1.0.3") == 0,
+    check(strcmp(tsimd_sys_version(), "1.0.4") == 0,
           "version string");
 
     const char *text = "Hello world, this is a test.";

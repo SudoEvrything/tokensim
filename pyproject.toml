@@ -4,8 +4,8 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "tokensim"
-version = "1.0.3"
-description = "TokenSIMD: high-throughput BPE tokenizer (SIMD pretokenizer, parallel encode)"
+version = "1.0.4"
+description = "Byte-exact tokenizer engine for GPT-2, GPT-4, Llama-3, DeepSeek, Qwen, Gemma and more - SIMD pretokenizer, parallel encode and decode"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT"
