@@ -18,22 +18,6 @@ const PROMPTS: [&str; 8] = [
     "The recipe calls for 2 cups of flour, 1 tsp of salt, and 3 eggs.",
 ];
 
-fn rss_kb() -> i64 {
-    let mut s = String::new();
-    if File::open("/proc/self/statm")
-        .and_then(|mut f| f.read_to_string(&mut s))
-        .is_err()
-    {
-        return -1;
-    }
-    let mut it = s.split_whitespace();
-    it.next();
-    match it.next().and_then(|v| v.parse::<i64>().ok()) {
-        Some(pages) => pages * 4,
-        None => -1,
-    }
-}
-
 fn fold_bytes(h: &mut u64, data: &[u8]) {
     for &b in data {
         *h ^= b as u64;
@@ -100,8 +84,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut checked: u64 = 0;
     let mut bad: u64 = 0;
     let mut docs: u64 = 0;
-    let mut rss = [rss_kb(), -1i64, -1, -1, -1];
-    let mut pos: u64 = 0;
     let mut enc_t = 0f64;
     let mut dec_t = 0f64;
     let mut last_nid: usize = 0;
@@ -138,19 +120,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         off += n;
-        pos += n as u64;
-        for q in 1..5u64 {
-            if rss[q as usize] < 0 && pos * 4 >= fsz * q {
-                rss[q as usize] = rss_kb();
-            }
-        }
     }
     let elapsed = t0.elapsed().as_secs_f64();
-    for i in 0..5 {
-        if rss[i] < 0 {
-            rss[i] = rss_kb();
-        }
-    }
     println!("input: {} bytes in {} docs of {} bytes", fsz, docs, doc_bytes);
     println!("ids: {}", total);
     println!("hash: 0x{:016x}", h);
@@ -165,10 +136,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "docs (round trip): {:.3} s = {:.1} MB/s",
         elapsed,
         fsz as f64 / 1e6 / elapsed
-    );
-    println!(
-        "rss: {} {} {} {} {} KB",
-        rss[0], rss[1], rss[2], rss[3], rss[4]
     );
 
     let mut ph = FNV0;

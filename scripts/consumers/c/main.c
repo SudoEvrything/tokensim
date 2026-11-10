@@ -16,14 +16,6 @@ static double now(void) {
     return ts.tv_sec + ts.tv_nsec / 1e9;
 }
 
-static long rss_kb(void) {
-    FILE *f = fopen("/proc/self/statm", "r");
-    if (!f) return -1;
-    long size = 0, resident = 0;
-    if (fscanf(f, "%ld %ld", &size, &resident) != 2) resident = -1;
-    fclose(f);
-    return resident < 0 ? -1 : resident * 4;
-}
 
 static uint64_t fold(uint64_t h, const uint8_t *p, size_t n) {
     for (size_t i = 0; i < n; i++) {
@@ -124,7 +116,6 @@ int main(int argc, char **argv) {
     uint64_t h = 0xcbf29ce484222325ULL;
     unsigned long long total = 0, checked = 0, bad = 0;
     size_t docs = 0;
-    long rss[5] = {rss_kb(), -1, -1, -1, -1};
     double enc_t = 0, dec_t = 0;
     double t0 = now();
     for (size_t off = 0; off < (size_t)fsz; off += doc_bytes) {
@@ -155,15 +146,9 @@ int main(int argc, char **argv) {
         dec_t += d - c;
         if (drc != 0 || got != n || memcmp(dbuf, buf + off, n) != 0)
             bad++;
-        checked++;        long pos = (long)(off + n);
-        if (fsz > 0 && pos > 0) {
-            for (int q = 1; q < 5; q++)
-                if (rss[q] < 0 && pos * 4 >= fsz * q) rss[q] = rss_kb();
-        }
+        checked++;
     }
     double t1 = now();
-    for (int i = 0; i < 5; i++)
-        if (rss[i] < 0) rss[i] = rss_kb();
     printf("input: %ld bytes in %zu docs of %zu bytes\n", fsz, docs, doc_bytes);
     printf("ids: %llu\n", total);
     printf("hash: 0x%016llx\n", (unsigned long long)h);
@@ -175,8 +160,6 @@ int main(int argc, char **argv) {
            (double)fsz / 1e6 / dec_t);
     printf("docs (round trip): %.3f s = %.1f MB/s\n", t1 - t0,
            (double)fsz / 1e6 / (t1 - t0));
-    printf("rss: %ld %ld %ld %ld %ld KB\n", rss[0], rss[1], rss[2], rss[3],
-           rss[4]);
 
     static const char *prompts[8] = {
         "Summarize the following article in one sentence.",

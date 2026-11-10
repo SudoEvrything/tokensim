@@ -21,12 +21,6 @@ PROMPTS = [
 ]
 
 
-def rss_kb():
-    with open("/proc/self/statm") as f:
-        parts = f.read().split()
-    return int(parts[1]) * 4
-
-
 def fold(h, data):
     for b in data:
         h = ((h ^ b) * PRIME) & MASK
@@ -52,7 +46,6 @@ def main():
     checked = 0
     bad = 0
     docs = 0
-    rss = [rss_kb(), -1, -1, -1, -1]
     enc_t = 0.0
     dec_t = 0.0
     ebuf = bytearray(doc_bytes * 4 + 64)
@@ -65,11 +58,8 @@ def main():
         for off in range(0, fsz, doc_bytes):
             n = min(fsz - off, doc_bytes)
             a = time.perf_counter()
-            n_ids = (tok.encode_threads_into(mv[off:off + n], ebuf, threads)
-                     if threads else
-                     tok.encode_threads_into(mv[off:off + n], ebuf, 0))
-            b = time.perf_counter()
-            enc_t += b - a
+            n_ids = tok.encode_threads_into(mv[off:off + n], ebuf, threads)
+            enc_t += time.perf_counter() - a
             ids_view = memoryview(ebuf)[:n_ids * 4]
             h = fold_doc(h, ids_view)
             total += n_ids
@@ -80,15 +70,8 @@ def main():
             checked += 1
             if not bytes_equal(dbuf[:got], mm[off:off + n]):
                 bad += 1
-            pos = off + n
-            for q in range(1, 5):
-                if rss[q] < 0 and pos * 4 >= fsz * q:
-                    rss[q] = rss_kb()
         mv.release()
     t1 = time.perf_counter()
-    for i in range(5):
-        if rss[i] < 0:
-            rss[i] = rss_kb()
     print(f"input: {fsz} bytes in {docs} docs of {doc_bytes} bytes")
     print(f"ids: {total}")
     print(f"hash: 0x{h:016x}")
@@ -97,23 +80,17 @@ def main():
     print(f"decode: {dec_t:.3f} s = {fsz / 1e6 / dec_t:.1f} MB/s")
     print(f"docs (round trip): {t1 - t0:.3f} s = "
           f"{fsz / 1e6 / (t1 - t0):.1f} MB/s")
-    print(f"rss: {rss[0]} {rss[1]} {rss[2]} {rss[3]} {rss[4]} KB")
 
     ph = FNV0
     pids = 0
     p0 = time.perf_counter()
-    batch_n = 256
-    done = 0
-    while done < prompt_calls:
-        n = min(prompt_calls - done, batch_n)
-        chunk = [PROMPTS[(done + i) % 8].encode() for i in range(n)]
-        batch = tok.encode_batch(chunk, threads)
-        for raw in batch:
-            count = len(raw) // 4
-            ph = fold_count(ph, count)
-            ph = fold(ph, raw)
-            pids += count
-        done += n
+    batch = tok.encode_batch([PROMPTS[i % 8].encode()
+                              for i in range(prompt_calls)], threads)
+    for raw in batch:
+        count = len(raw) // 4
+        ph = fold_count(ph, count)
+        ph = fold(ph, raw)
+        pids += count
     p1 = time.perf_counter()
     print(
         f"prompts: {prompt_calls} calls in {p1 - p0:.3f} s = "
