@@ -114,18 +114,13 @@ int main(int argc, char **argv) {
     }
     madvise(buf, (size_t)fsz, MADV_SEQUENTIAL);
     size_t ebound = tsimd_tokenizer_encode_bound(&t, doc_bytes);
-    uint32_t *ebuf = aligned_alloc(2u << 20,
-                                   ((ebound * 4 + (2u << 20) - 1) &
-                                    ~((size_t)(2u << 20) - 1)));
+    uint32_t *ebuf = malloc(ebound * 4);
     if (!ebuf) return 1;
-    madvise(ebuf, ebound * 4, MADV_HUGEPAGE);
 
     size_t dbound = doc_bytes + 64;
-    uint8_t *dbuf = aligned_alloc(2u << 20,
-                                  ((dbound + (2u << 20) - 1) &
-                                   ~((size_t)(2u << 20) - 1)));
+    uint8_t *dbuf = malloc(dbound);
     if (!dbuf) return 1;
-    madvise(dbuf, dbound, MADV_HUGEPAGE);
+    memset(dbuf, 0, dbound);
     uint64_t h = 0xcbf29ce484222325ULL;
     unsigned long long total = 0, checked = 0, bad = 0;
     size_t docs = 0;
