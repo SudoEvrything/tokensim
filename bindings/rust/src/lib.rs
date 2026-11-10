@@ -56,6 +56,15 @@ extern "C" {
         bytes: *mut *mut u8,
         n_bytes: *mut usize,
     ) -> c_int;
+    fn tsimd_sys_decode_into(
+        h: *mut TsimdSys,
+        ids: *const u32,
+        n: usize,
+        skip_special: c_int,
+        buf: *mut u8,
+        cap: usize,
+        out_len: *mut usize,
+    ) -> c_int;
     fn tsimd_sys_free(p: *mut c_void);
     fn tsimd_default_threads() -> c_int;
     fn tsimd_sys_encode_batch(
@@ -260,6 +269,40 @@ impl Tokenizer {
     Ok(out)
 }
 
+    pub fn decode_into(
+        &mut self,
+        ids: &[u32],
+        out: &mut [u8],
+        skip_special: bool,
+    ) -> Result<usize, String> {
+        let mut unused: usize = 0;
+        self.decode_into_len(ids, out, skip_special, &mut unused)
+    }
+
+    pub fn decode_into_len(
+        &mut self,
+        ids: &[u32],
+        out: &mut [u8],
+        skip_special: bool,
+        out_len: &mut usize,
+    ) -> Result<usize, String> {
+        let rc = unsafe {
+            tsimd_sys_decode_into(
+                self.handle,
+                ids.as_ptr(),
+                ids.len(),
+                skip_special as c_int,
+                out.as_mut_ptr(),
+                out.len(),
+                out_len,
+            )
+        };
+        if rc != 0 {
+            return Err("decode_into failed (buffer too small?)".to_string());
+        }
+        Ok(*out_len)
+    }
+
     pub fn encode_bound(&self, len: usize) -> usize {
         let mut cap: usize = 0;
         unsafe { tsimd_sys_encode_bound(self.handle, ptr::null(), len, 1, &mut cap) };
@@ -375,6 +418,24 @@ mod tests {
         assert!(!ids.is_empty());
         let text = tok.decode(&ids).unwrap();
         assert_eq!(text, b"Hello world, this is a test.");
+    }
+
+    #[test]
+    fn decode_into_matches_decode() {
+        if !models_available() { eprintln!("skip: no models dir"); return; }
+        let mut tok = Tokenizer::open(&model("t5_spiece.model"), Format::SentencePiece, None)
+            .expect("load t5");
+        let data = b"Decode into a caller buffer, round trip. ".repeat(4000);
+        let ids: Vec<u32> = tok.encode(&data).unwrap().to_vec();
+        let want = tok.decode(&ids).unwrap();
+        let mut need: usize = 0;
+        assert!(tok.decode_into_len(&ids, &mut [], false, &mut need).is_ok());
+        let mut out = vec![0u8; need];
+        let got = tok.decode_into_len(&ids, &mut out, false, &mut need).unwrap();
+        assert_eq!(got, want.len());
+        assert_eq!(&out[..got], &want[..]);
+        let mut short = vec![0u8; need - 1];
+        assert!(tok.decode_into_len(&ids, &mut short, false, &mut need).is_err());
     }
 
     #[test]

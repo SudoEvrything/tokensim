@@ -9,6 +9,12 @@ clang -fsanitize=fuzzer -O2 -g -I include tests/fuzz_all_models.c \
     build/libtokensim.a -lm -lpthread -o /tmp/tsimd-fuzz
 clang -fsanitize=fuzzer -O2 -g -I include tests/fuzz_par_parity.c \
     build/libtokensim.a -lm -lpthread -o /tmp/tsimd-fuzz-par
+clang -fsanitize=fuzzer -O2 -g -I include \
+    -DTSIMD_SRC_DIR=\"$PWD\" tests/fuzz_decode_roundtrip.c \
+    build/libtokensim.a -lm -lpthread -o /tmp/tsimd-fuzz-dec
+clang -fsanitize=fuzzer -O2 -g -I include \
+    -DTSIMD_SRC_DIR=\"$PWD\" tests/fuzz_pretokenize.c \
+    build/libtokensim.a -lm -lpthread -o /tmp/tsimd-fuzz-pre
 run() {
   local spec="$1" name="$2"
   echo "== $name (${SEC}s)"
@@ -34,6 +40,14 @@ run "models/reference/mistral7b_tokenizer.model;spm" mistral
 run "models/reference/xlmr_spiece.model;spm" xlmr
 run "models/reference/t5_spiece.model;spm" t5
 
+echo "== decode round trip (30s)"
+TSIMD_FUZZ_SPEC="" timeout 70 /tmp/tsimd-fuzz-dec \
+    -max_total_time=30 -max_len=512 -rss_limit_mb=4096 \
+    -malloc_limit_mb=4096 2>&1 | grep -E "ERROR|abort|Done " | tail -1
+echo "== pretokenize (30s)"
+TSIMD_FUZZ_SPEC="" timeout 70 /tmp/tsimd-fuzz-pre \
+    -max_total_time=30 -max_len=512 -rss_limit_mb=4096 \
+    -malloc_limit_mb=4096 2>&1 | grep -E "ERROR|abort|Done " | tail -1
 run "models/reference/kimi_k2_tiktoken.model;tiktoken" kimi
 run "models/reference/kimi_k2_tiktoken.model;tiktoken" kimi2
 

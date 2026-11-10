@@ -91,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let fsz = std::fs::metadata(&args[4])?.len();
     let mmap = unsafe { Mmap::map(&File::open(&args[4])?)? };
+    let mut dbuf = vec![0u8; doc_bytes + 64];
     mmap.advise(memmap2::Advice::Sequential)?;
 
     let mut h = FNV0;
@@ -101,7 +102,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rss = [rss_kb(), -1i64, -1, -1, -1];
     let mut pos: u64 = 0;
     let mut owned: Vec<u32> = Vec::new();
-    let mut do_check = false;
+    let mut enc_t = 0f64;
+    let mut dec_t = 0f64;
     let t0 = Instant::now();
     let mut off: usize = 0;
     loop {
@@ -111,11 +113,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         {
             let doc = &mmap[off..off + n];
+            let a = Instant::now();
             let ids = if threads != 0 {
                 tok.encode_threads(doc, threads)?
             } else {
                 tok.encode(doc)?
             };
+            enc_t += a.elapsed().as_secs_f64();
             fold_count(&mut h, ids.len() as u64);
             let head = ids.len().min(4096);
             fold_ids(&mut h, &ids[..head]);
@@ -124,17 +128,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             total += ids.len() as u64;
             owned.clear();
-            do_check = (docs + 1) % 64 == 0 || n < doc_bytes;
-            if do_check {
-                owned.extend_from_slice(ids);
-            }
+            owned.extend_from_slice(ids);
         }
         docs += 1;
-        if do_check {
-            if tok.decode(&owned)? != mmap[off..off + n] {
+        {
+            let c = Instant::now();
+            let got = tok.decode_into(&owned, &mut dbuf, false)?;
+            dec_t += c.elapsed().as_secs_f64();
+            checked += 1;
+            if got != n || mmap[off..off + n] != dbuf[..got] {
                 bad += 1;
             }
-            checked += 1;
         }
         off += n;
         pos += n as u64;
@@ -158,7 +162,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if bad == 0 { "ok" } else { "MISMATCH" },
         checked
     );
-    println!("docs: {:.3} s = {:.1} MB/s", elapsed, fsz as f64 / 1e6 / elapsed);
+    println!("encode: {:.3} s = {:.1} MB/s", enc_t, fsz as f64 / 1e6 / enc_t);
+    println!("decode: {:.3} s = {:.1} MB/s", dec_t, fsz as f64 / 1e6 / dec_t);
+    println!(
+        "docs (round trip): {:.3} s = {:.1} MB/s",
+        elapsed,
+        fsz as f64 / 1e6 / elapsed
+    );
     println!(
         "rss: {} {} {} {} {} KB",
         rss[0], rss[1], rss[2], rss[3], rss[4]

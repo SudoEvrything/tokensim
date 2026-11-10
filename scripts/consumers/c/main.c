@@ -117,21 +117,28 @@ int main(int argc, char **argv) {
     uint32_t *ebuf = malloc(ebound * 4);
     if (!ebuf) return 1;
 
+    size_t dbound = doc_bytes + 64;
+    uint8_t *dbuf = malloc(dbound);
+    if (!dbuf) return 1;
     uint64_t h = 0xcbf29ce484222325ULL;
     unsigned long long total = 0, checked = 0, bad = 0;
     size_t docs = 0;
     long rss[5] = {rss_kb(), -1, -1, -1, -1};
+    double enc_t = 0, dec_t = 0;
     double t0 = now();
     for (size_t off = 0; off < (size_t)fsz; off += doc_bytes) {
         size_t n = (size_t)fsz - off < doc_bytes ? (size_t)fsz - off
                                                  : doc_bytes;
         size_t n_out = 0;
+        double a = now();
         if (tsimd_tokenizer_encode_parallel_into(&t, buf + off, n, threads,
                                                  ebuf, ebound,
                                                  &n_out) != 0) {
             fprintf(stderr, "encode failed\n");
             return 1;
         }
+        double b = now();
+        enc_t += b - a;
         h = fold_u64(h, (uint64_t)n_out);
         size_t head = n_out < 4096 ? n_out : 4096;
         h = fold_ids(h, ebuf, head);
@@ -139,16 +146,15 @@ int main(int argc, char **argv) {
             h = fold_ids(h, ebuf + n_out - head, head);
         total += n_out;
         docs++;
-        if (docs % 64 == 0 || n < doc_bytes) {
-            tsimd_byte_sequence_t back;
-            memset(&back, 0, sizeof back);
-            if (tsimd_tokenizer_decode(&t, ebuf, n_out, 0, &back) != 0 ||
-                back.len != n || memcmp(back.bytes, buf + off, n) != 0)
-                bad++;
-            checked++;
-            tsimd_byte_sequence_free(&back);
-        }
-        long pos = (long)(off + n);
+        double c = now();
+        size_t got = 0;
+        if (tsimd_tokenizer_decode_parallel(&t, ebuf, n_out, 0, dbuf, dbound,
+                                            &got, threads) != 0 || got != n ||
+            memcmp(dbuf, buf + off, n) != 0)
+            bad++;
+        checked++;
+        double d = now();
+        dec_t += d - c;        long pos = (long)(off + n);
         if (fsz > 0 && pos > 0) {
             for (int q = 1; q < 5; q++)
                 if (rss[q] < 0 && pos * 4 >= fsz * q) rss[q] = rss_kb();
@@ -162,7 +168,11 @@ int main(int argc, char **argv) {
     printf("hash: 0x%016llx\n", (unsigned long long)h);
     printf("roundtrip: %s (%llu checked)\n", bad == 0 ? "ok" : "MISMATCH",
            checked);
-    printf("docs: %.3f s = %.1f MB/s\n", t1 - t0,
+    printf("encode: %.3f s = %.1f MB/s\n", enc_t,
+           (double)fsz / 1e6 / enc_t);
+    printf("decode: %.3f s = %.1f MB/s\n", dec_t,
+           (double)fsz / 1e6 / dec_t);
+    printf("docs (round trip): %.3f s = %.1f MB/s\n", t1 - t0,
            (double)fsz / 1e6 / (t1 - t0));
     printf("rss: %ld %ld %ld %ld %ld KB\n", rss[0], rss[1], rss[2], rss[3],
            rss[4]);
@@ -214,6 +224,7 @@ int main(int argc, char **argv) {
            (unsigned long long)ph);
 
     free(ebuf);
+    free(dbuf);
     munmap(buf, (size_t)fsz);
     close(fd);
     tsimd_tokenizer_free(&t);

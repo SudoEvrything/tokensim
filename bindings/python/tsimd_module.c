@@ -338,38 +338,51 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
                         "decode expects a list of ids or a bytes-like buffer");
         return NULL;
     }
-    size_t need = 0, got = 0;
+    size_t got = 0;
     int rc = 0;
     Py_BEGIN_ALLOW_THREADS
     pthread_mutex_lock(&self->mu);
-    if (tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n, skip_special,
-                                    NULL, 0, &need) != 0) {
-        rc = -1;
-    } else if (need > self->dec_scratch_cap) {
-        size_t cap = self->dec_scratch_cap ? self->dec_scratch_cap : 4096;
-        while (cap < need) cap *= 2;
-        uint8_t *grown = realloc(self->dec_scratch, cap);
-        if (!grown) {
-            rc = -1;
-        } else {
-            self->dec_scratch = grown;
-            self->dec_scratch_cap = cap;
+    if (n >= (1u << 18)) {
+        rc = tsimd_tokenizer_decode_parallel(
+            self->tok, ids, (size_t)n, skip_special, self->dec_scratch,
+            self->dec_scratch_cap, &got, 0);
+        if (rc != 0 || self->dec_scratch == NULL ||
+            got > self->dec_scratch_cap) {
+            if (got > self->dec_scratch_cap) {
+                uint8_t *grown = realloc(self->dec_scratch, got);
+                if (grown) {
+                    self->dec_scratch = grown;
+                    self->dec_scratch_cap = got;
+                }
+            }
+            if (self->dec_scratch && self->dec_scratch_cap >= got)
+                rc = tsimd_tokenizer_decode_parallel(
+                    self->tok, ids, (size_t)n, skip_special,
+                    self->dec_scratch, self->dec_scratch_cap, &got, 0);
         }
-    }
-    if (rc == 0) {
-        if (need >= (1u << 20))
-            rc = tsimd_tokenizer_decode_parallel(
-                self->tok, ids, (size_t)n, skip_special, self->dec_scratch,
-                self->dec_scratch_cap, &got, 0);
-        else
-            rc = tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n,
-                                             skip_special, self->dec_scratch,
-                                             self->dec_scratch_cap, &got);
+    } else {
+        rc = tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n,
+                                         skip_special, self->dec_scratch,
+                                         self->dec_scratch_cap, &got);
+        if (rc != 0 || got > self->dec_scratch_cap) {
+            if (got > self->dec_scratch_cap) {
+                uint8_t *grown = realloc(self->dec_scratch, got);
+                if (grown) {
+                    self->dec_scratch = grown;
+                    self->dec_scratch_cap = got;
+                }
+            }
+            if (self->dec_scratch && self->dec_scratch_cap >= got)
+                rc = tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n,
+                                                 skip_special,
+                                                 self->dec_scratch,
+                                                 self->dec_scratch_cap, &got);
+        }
     }
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     free(ids);
-    if (rc != 0) {
+    if (rc != 0 || got == 0) {
         PyErr_SetString(TokError, "decode failed");
         return NULL;
     }

@@ -53,6 +53,8 @@ def main():
     bad = 0
     docs = 0
     rss = [rss_kb(), -1, -1, -1, -1]
+    enc_t = 0.0
+    dec_t = 0.0
     t0 = time.perf_counter()
     with open(corpus, "rb") as f, mmap.mmap(f.fileno(), 0,
                                             access=mmap.ACCESS_READ) as mm:
@@ -60,15 +62,19 @@ def main():
         mv = memoryview(mm)
         for off in range(0, fsz, doc_bytes):
             n = min(fsz - off, doc_bytes)
+            a = time.perf_counter()
             raw = (tok.encode_threads(mv[off:off + n], threads)
                    if threads else tok(mv[off:off + n]))
+            b = time.perf_counter()
+            enc_t += b - a
             h = fold_doc(h, raw)
             total += len(raw) // 4
             docs += 1
-            if docs % 64 == 0 or n < doc_bytes:
-                if tok.decode(raw) != mm[off:off + n]:
-                    bad += 1
-                checked += 1
+            c = time.perf_counter()
+            if tok.decode(raw) != mm[off:off + n]:
+                bad += 1
+            checked += 1
+            dec_t += time.perf_counter() - c
             pos = off + n
             for q in range(1, 5):
                 if rss[q] < 0 and pos * 4 >= fsz * q:
@@ -82,7 +88,10 @@ def main():
     print(f"ids: {total}")
     print(f"hash: 0x{h:016x}")
     print(f"roundtrip: {'ok' if bad == 0 else 'MISMATCH'} ({checked} checked)")
-    print(f"docs: {t1 - t0:.3f} s = {fsz / 1e6 / (t1 - t0):.1f} MB/s")
+    print(f"encode: {enc_t:.3f} s = {fsz / 1e6 / enc_t:.1f} MB/s")
+    print(f"decode: {dec_t:.3f} s = {fsz / 1e6 / dec_t:.1f} MB/s")
+    print(f"docs (round trip): {t1 - t0:.3f} s = "
+          f"{fsz / 1e6 / (t1 - t0):.1f} MB/s")
     print(f"rss: {rss[0]} {rss[1]} {rss[2]} {rss[3]} {rss[4]} KB")
 
     ph = FNV0

@@ -1916,7 +1916,7 @@ int tsimd_tokenizer_decode_into(const tsimd_tokenizer_t *t,
     size_t total = tsimd_decode_ids_count(t, ids, n, skip_special, &err);
     if (err) return -1;
     if (out_len) *out_len = total;
-    if (!buf) return 0;
+    if (cap == 0) return 0;
     if (total > cap) return -1;
     if (total == 0) return 0;
     size_t off = 0;

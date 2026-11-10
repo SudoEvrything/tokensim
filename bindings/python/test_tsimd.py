@@ -360,6 +360,17 @@ def main():
     else:
         fails += 1
         print("concurrent encode thread safety FAIL")
+    big_text = (TEXTS[0] + " the quick brown fox jumps. ") * 45000
+    big = big_text.encode("utf-8")
+    raw_big = tok.encode(big)
+    if len(raw_big) < (1 << 18):
+        print("big payload too small for the parallel decode path")
+        fails += 1
+    elif tok.decode(raw_big) != big:
+        print("parallel decode round-trip differs")
+        fails += 1
+    else:
+        print("parallel decode round trip OK")
     if batch_check(tok_b, [t.encode("utf-8") for t in TEXTS]):
         print("encode_batch OK")
     else:

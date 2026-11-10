@@ -26,6 +26,9 @@ int tsimd_sys_encode_into(tsimd_sys *h, const uint8_t *data, size_t len,
                           size_t *n_out);
 int tsimd_sys_encode_bound(tsimd_sys *h, const uint8_t *data, size_t len,
                            int threads, size_t *cap_out);
+int tsimd_sys_decode_into(tsimd_sys *h, const uint32_t *ids, size_t n,
+                          int skip_special, uint8_t *buf, size_t cap,
+                          size_t *out_len);
 int tsimd_sys_decode(tsimd_sys *h, const uint32_t *ids, size_t n,
                      int skip_special, uint8_t **bytes, size_t *n_bytes);
 int tsimd_sys_encode_batch(tsimd_sys *h, const tsimd_input_span_t *docs,

@@ -70,6 +70,16 @@ int main(void) {
                                               &got) == 0 && got == need &&
                       memcmp(dbuf, text, need) == 0,
                   "decode into matches");
+            uint8_t *sbuf = malloc(need);
+            size_t sgot = 0;
+            check(tsimd_sys_decode_into(h, ids, n_ids, 0, sbuf, need,
+                                        &sgot) == 0 && sgot == need &&
+                      memcmp(sbuf, text, need) == 0,
+                  "sys decode into matches");
+            check(tsimd_sys_decode_into(h, ids, n_ids, 0, sbuf, need - 1,
+                                        &sgot) != 0,
+                  "sys decode into must fail on a short buffer");
+            free(sbuf);
             check(tsimd_tokenizer_decode_into(&dt, ids, n_ids, 0, dbuf,
                                               need - 1, &got) != 0,
                   "decode into must fail on a short buffer");
