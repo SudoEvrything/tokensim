@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-from tokensim import tokenizer, default_threads, fold_doc
+from tokensim import tokenizer, default_threads, fold_doc, bytes_equal
 
 PRIME = 0x100000001B3
 MASK = (1 << 64) - 1
@@ -78,7 +78,7 @@ def main():
             got = tok.decode_into(ids_view, dbuf)
             dec_t += time.perf_counter() - c
             checked += 1
-            if dbuf[:got] != mm[off:off + n]:
+            if not bytes_equal(dbuf[:got], mm[off:off + n]):
                 bad += 1
             pos = off + n
             for q in range(1, 5):

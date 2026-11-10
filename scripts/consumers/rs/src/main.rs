@@ -102,9 +102,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut docs: u64 = 0;
     let mut rss = [rss_kb(), -1i64, -1, -1, -1];
     let mut pos: u64 = 0;
-    let mut owned: Vec<u32> = Vec::new();
     let mut enc_t = 0f64;
     let mut dec_t = 0f64;
+    let mut last_nid: usize = 0;
     let t0 = Instant::now();
     let mut off: usize = 0;
     loop {
@@ -116,22 +116,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let doc = &mmap[off..off + n];
             let a = Instant::now();
             let nid = tok.encode_into(doc, &mut ebuf, threads)?;
-            let ids = &ebuf[..nid];
             enc_t += a.elapsed().as_secs_f64();
-            fold_count(&mut h, ids.len() as u64);
-            let head = ids.len().min(4096);
-            fold_ids(&mut h, &ids[..head]);
-            if ids.len() > head {
-                fold_ids(&mut h, &ids[ids.len() - head..]);
+            fold_count(&mut h, nid as u64);
+            let head = (nid as usize).min(4096);
+            fold_ids(&mut h, &ebuf[..head]);
+            if nid as usize > head {
+                fold_ids(&mut h, &ebuf[nid as usize - head..nid as usize]);
             }
-            total += ids.len() as u64;
-            owned.clear();
-            owned.extend_from_slice(ids);
+            total += nid as u64;
+            last_nid = nid;
         }
         docs += 1;
         {
             let c = Instant::now();
-            let got = tok.decode_parallel(&owned, &mut dbuf, false, threads)?;
+            let got = tok.decode_parallel(&ebuf[..last_nid], &mut dbuf, false,
+                                          threads)?;
             dec_t += c.elapsed().as_secs_f64();
             checked += 1;
             if got != n || mmap[off..off + n] != dbuf[..got] {

@@ -387,6 +387,13 @@ def main():
         fails += 1
     else:
         print("parallel decode round trip OK")
+    if not tokensim.bytes_equal(big_text.encode("utf-8"),
+                                big_text.encode("utf-8")):
+        print("bytes_equal true case failed")
+        fails += 1
+    if tokensim.bytes_equal(b"abc", b"abd"):
+        print("bytes_equal false case failed")
+        fails += 1
     if decode_into_check(tok_b, big_text.encode("utf-8")):
         print("decode_into OK")
     else:

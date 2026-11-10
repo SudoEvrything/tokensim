@@ -542,6 +542,26 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
     return (PyObject *)obj;
 }
 
+static PyObject *mod_bytes_equal(PyObject *self, PyObject *args) {
+    (void)self;
+    Py_buffer a, b;
+    if (!PyArg_ParseTuple(args, "OO", &a, &b)) return NULL;
+    if (PyObject_GetBuffer((PyObject *)PyTuple_GetItem(args, 0), &a,
+                           PyBUF_CONTIG_RO) != 0)
+        return NULL;
+    if (PyObject_GetBuffer((PyObject *)PyTuple_GetItem(args, 1), &b,
+                           PyBUF_CONTIG_RO) != 0) {
+        PyBuffer_Release(&a);
+        return NULL;
+    }
+    int eq = a.len == b.len && (a.len == 0 ||
+                                memcmp(a.buf, b.buf, (size_t)a.len) == 0);
+    PyBuffer_Release(&a);
+    PyBuffer_Release(&b);
+    if (eq) Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+}
+
 static PyObject *mod_fold_doc(PyObject *self, PyObject *args) {
     unsigned long long h;
     Py_buffer view;
@@ -582,6 +602,8 @@ static PyMethodDef mod_methods[] = {
     {"tokenizer", mod_load, METH_VARARGS, "tokenizer(path, format=None, scheme=None) -> Tokenizer"},
     {"default_threads", mod_default_threads, METH_NOARGS,
      "default_threads() -> the automatic worker count"},
+    {"bytes_equal", mod_bytes_equal, METH_VARARGS,
+     "bytes_equal(a, b) -> bool (the zero-copy memcmp)"},
     {"fold_doc", mod_fold_doc, METH_VARARGS,
      "fold_doc(state, ids_bytes) -> the next FNV-1a state folded over the "
      "document id count and the head and tail 4096 ids"},
