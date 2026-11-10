@@ -141,6 +141,8 @@ find_package(Python3 COMPONENTS Interpreter Development.Module QUIET)
 if(Python3_Development.Module_FOUND)
   Python3_add_library(tsimd_python MODULE WITH_SOABI bindings/python/tsimd_module.c)
   target_link_libraries(tsimd_python PRIVATE tokensim)
+  target_include_directories(tsimd_python PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src)
   set_target_properties(tsimd_python PROPERTIES OUTPUT_NAME tokensim)
   message(STATUS "Python bindings: enabled (Python ${Python3_VERSION})")
 else()

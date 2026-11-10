@@ -30,6 +30,7 @@ if [ ! -x "$C_BIN" ]; then
 fi
 
 echo "model: $MODEL  docs: $DOCS bytes  threads: $THREADS (0 = auto)"
+export PYTHONPATH="$PWD/bindings/python${PYTHONPATH:+:$PYTHONPATH}"
 for corpus in $CORPORA; do
   [ -f "$corpus" ] || { echo "skip: $corpus missing"; continue; }
   echo "== $corpus"

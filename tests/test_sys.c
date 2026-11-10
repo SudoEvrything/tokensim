@@ -346,7 +346,7 @@ int main(void) {
         if (big) {
             const char *pat = "una mattina mi svegliai; comunisme, caf\xc3\xa9, "
                               "\xe6\x9d\xb1\xe4\xba\xac na\xc3\xafve "
-                              "fa\xc3\xa7ade. ";
+                              "fa\xc3\xa7" "ade. ";
             size_t plen = strlen(pat);
             for (size_t i = 0; i < big_len; i++)
                 big[i] = (uint8_t)pat[i % plen];

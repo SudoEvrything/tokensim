@@ -3,6 +3,7 @@
 
 #include "tokenizer.h"
 #include "batch.h"
+#include "model_internal.h"
 #include "tokensimd_version.h"
 
 #include <stdint.h>
