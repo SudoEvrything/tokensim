@@ -92,6 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fsz = std::fs::metadata(&args[4])?.len();
     let mmap = unsafe { Mmap::map(&File::open(&args[4])?)? };
     let mut dbuf = vec![0u8; doc_bytes + 64];
+    let mut ebuf = vec![0u32; doc_bytes / 2 + 64];
     mmap.advise(memmap2::Advice::Sequential)?;
 
     let mut h = FNV0;
@@ -114,11 +115,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             let doc = &mmap[off..off + n];
             let a = Instant::now();
-            let ids = if threads != 0 {
-                tok.encode_threads(doc, threads)?
-            } else {
-                tok.encode(doc)?
-            };
+            let nid = tok.encode_into(doc, &mut ebuf, threads)?;
+            let ids = &ebuf[..nid];
             enc_t += a.elapsed().as_secs_f64();
             fold_count(&mut h, ids.len() as u64);
             let head = ids.len().min(4096);

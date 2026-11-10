@@ -251,6 +251,69 @@ static PyObject *tok_encode_batch(TokObject *self, PyObject *args) {
     return out;
 }
 
+static PyObject *tok_decode_into(TokObject *self, PyObject *args) {
+    PyObject *ids_obj, *out_obj;
+    int skip_special = 0;
+    int threads = 0;
+    if (!PyArg_ParseTuple(args, "OO|pi", &ids_obj, &out_obj, &skip_special,
+                          &threads))
+        return NULL;
+    Py_buffer iv, ov;
+    if (PyObject_GetBuffer(ids_obj, &iv, PyBUF_CONTIG_RO) != 0) return NULL;
+    if (PyObject_GetBuffer(out_obj, &ov, PyBUF_WRITABLE) != 0) {
+        PyBuffer_Release(&iv);
+        return NULL;
+    }
+    if (iv.len % 4 != 0) {
+        PyBuffer_Release(&iv);
+        PyBuffer_Release(&ov);
+        PyErr_SetString(TokError,
+                        "decode ids length must be a multiple of 4");
+        return NULL;
+    }
+    uint32_t *ids = NULL;
+    int ids_copy = 0;
+    if (((uintptr_t)iv.buf & 3) == 0) {
+        ids = (uint32_t *)iv.buf;
+    } else {
+        ids = malloc((size_t)(iv.len / 4) * sizeof(uint32_t));
+        if (!ids) {
+            PyBuffer_Release(&iv);
+            PyBuffer_Release(&ov);
+            return PyErr_NoMemory();
+        }
+        memcpy(ids, iv.buf, iv.len);
+        ids_copy = 1;
+    }
+    size_t got = 0;
+    int rc;
+    Py_BEGIN_ALLOW_THREADS
+    pthread_mutex_lock(&self->mu);
+    if ((size_t)(iv.len / 4) >= (1u << 18))
+        rc = tsimd_tokenizer_decode_parallel(self->tok, ids,
+                                             (size_t)(iv.len / 4),
+                                             skip_special, ov.buf, ov.len,
+                                             &got, threads);
+    else
+        rc = tsimd_tokenizer_decode_into(self->tok, ids,
+                                         (size_t)(iv.len / 4), skip_special,
+                                         ov.buf, ov.len, &got);
+    pthread_mutex_unlock(&self->mu);
+    Py_END_ALLOW_THREADS
+    if (ids_copy) free(ids);
+    PyBuffer_Release(&iv);
+    PyBuffer_Release(&ov);
+    if (rc != 0 || got == 0) {
+        if (rc == 0) {
+            PyErr_SetString(TokError, "decode_into produced nothing");
+        } else {
+            PyErr_SetString(TokError, "decode_into failed");
+        }
+        return NULL;
+    }
+    return PyLong_FromSize_t(got);
+}
+
 static PyObject *tok_encode_bound(TokObject *self, PyObject *args) {
     Py_ssize_t len;
     if (!PyArg_ParseTuple(args, "n", &len)) return NULL;
@@ -308,6 +371,7 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
     Py_ssize_t n = 0;
     int have_view = 0;
     Py_buffer view;
+    memset(&view, 0, sizeof view);
     if (PyList_Check(obj)) {
         n = PyList_Size(obj);
         ids = malloc((size_t)(n > 0 ? n : 1) * sizeof(uint32_t));
@@ -338,7 +402,6 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
                 return PyErr_NoMemory();
             }
             memcpy(ids, view.buf, (size_t)n * 4);
-            PyBuffer_Release(&view);
             have_view = 0;
         }
     } else {
@@ -412,6 +475,9 @@ static PyMethodDef Tok_methods[] = {
      "encode_threads_into(bytes, bytearray_out, threads=0) -> id count"},
     {"encode_batch", (PyCFunction)tok_encode_batch, METH_VARARGS,
      "encode_batch(list_of_bytes, threads=0) -> [bytes of uint32 LE ids]"},
+    {"decode_into", (PyCFunction)tok_decode_into, METH_VARARGS,
+     "decode_into(ids_bytes, bytearray_out, skip_special=False, "
+     "threads=0) -> the decoded byte count"},
     {"encode_bound", (PyCFunction)tok_encode_bound, METH_VARARGS,
      "encode_bound(len) -> required out-buffer bytes"},
     {"decode", (PyCFunction)tok_decode, METH_VARARGS,

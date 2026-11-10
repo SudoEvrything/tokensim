@@ -184,6 +184,22 @@ def fold_doc_check(tok, docs):
         pass
     return True
 
+def decode_into_check(tok, big):
+    ids = tok.encode(big)
+    want = tok.decode(ids)
+    buf = bytearray(len(want) + 64)
+    got = tok.decode_into(ids, buf)
+    if got != len(want) or bytes(buf[:got]) != want:
+        print("decode_into differs from decode")
+        return False
+    try:
+        tok.decode_into(ids, bytearray(len(want) - 1))
+        print("decode_into accepted a short buffer")
+        return False
+    except (tokensim.Error, ValueError):
+        pass
+    return True
+
 def batch_check(tok, docs):
     expect = [tok.encode(d) for d in docs]
     got = tok.encode_batch(docs)
@@ -371,6 +387,11 @@ def main():
         fails += 1
     else:
         print("parallel decode round trip OK")
+    if decode_into_check(tok_b, big_text.encode("utf-8")):
+        print("decode_into OK")
+    else:
+        fails += 1
+        print("decode_into FAIL")
     if batch_check(tok_b, [t.encode("utf-8") for t in TEXTS]):
         print("encode_batch OK")
     else:

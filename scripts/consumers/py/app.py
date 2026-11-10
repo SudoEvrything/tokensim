@@ -55,6 +55,8 @@ def main():
     rss = [rss_kb(), -1, -1, -1, -1]
     enc_t = 0.0
     dec_t = 0.0
+    ebuf = bytearray(doc_bytes * 4 + 64)
+    dbuf = bytearray(doc_bytes + 64)
     t0 = time.perf_counter()
     with open(corpus, "rb") as f, mmap.mmap(f.fileno(), 0,
                                             access=mmap.ACCESS_READ) as mm:
@@ -63,18 +65,21 @@ def main():
         for off in range(0, fsz, doc_bytes):
             n = min(fsz - off, doc_bytes)
             a = time.perf_counter()
-            raw = (tok.encode_threads(mv[off:off + n], threads)
-                   if threads else tok(mv[off:off + n]))
+            n_ids = (tok.encode_threads_into(mv[off:off + n], ebuf, threads)
+                     if threads else
+                     tok.encode_threads_into(mv[off:off + n], ebuf, 0))
             b = time.perf_counter()
             enc_t += b - a
-            h = fold_doc(h, raw)
-            total += len(raw) // 4
+            ids_view = memoryview(ebuf)[:n_ids * 4]
+            h = fold_doc(h, ids_view)
+            total += n_ids
             docs += 1
             c = time.perf_counter()
-            if tok.decode(raw) != mm[off:off + n]:
-                bad += 1
-            checked += 1
+            got = tok.decode_into(ids_view, dbuf)
             dec_t += time.perf_counter() - c
+            checked += 1
+            if dbuf[:got] != mm[off:off + n]:
+                bad += 1
             pos = off + n
             for q in range(1, 5):
                 if rss[q] < 0 and pos * 4 >= fsz * q:
