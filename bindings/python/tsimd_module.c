@@ -299,7 +299,8 @@ static PyObject *tok_decode_into(TokObject *self, PyObject *args) {
     if ((size_t)(iv.len / 4) >= (1u << 18))
         rc = tsimd_tokenizer_decode_parallel(self->tok, ids,
                                              (size_t)(iv.len / 4),
-                                             skip_special, ov.buf, ov.len,
+                                             skip_special,
+                                             ov.len ? ov.buf : NULL, ov.len,
                                              &got, threads);
     else
         rc = tsimd_tokenizer_decode_into(self->tok, ids,
@@ -418,27 +419,53 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
     }
     size_t got = 0;
     int rc = 0;
-    Py_BEGIN_ALLOW_THREADS
-    pthread_mutex_lock(&self->mu);
     if (n >= (1u << 18)) {
-        rc = tsimd_tokenizer_decode_parallel(
-            self->tok, ids, (size_t)n, skip_special, self->dec_scratch,
-            self->dec_scratch_cap, &got, 0);
-        if (rc != 0 || self->dec_scratch == NULL ||
-            got > self->dec_scratch_cap) {
-            if (got > self->dec_scratch_cap) {
-                uint8_t *grown = realloc(self->dec_scratch, got);
-                if (grown) {
-                    self->dec_scratch = grown;
-                    self->dec_scratch_cap = got;
-                }
+        size_t total = 0;
+        Py_BEGIN_ALLOW_THREADS
+        pthread_mutex_lock(&self->mu);
+        rc = tsimd_tokenizer_decode_parallel(self->tok, ids, (size_t)n,
+                                             skip_special, NULL, 0,
+                                             &total, 0);
+        pthread_mutex_unlock(&self->mu);
+        Py_END_ALLOW_THREADS
+        if (rc == 0 && total > 0) {
+            PyObject *out_obj =
+                PyBytes_FromStringAndSize(NULL, (Py_ssize_t)total);
+            if (!out_obj) {
+                if (!have_view) free(ids);
+                PyBuffer_Release(&view);
+                return NULL;
             }
-            if (self->dec_scratch && self->dec_scratch_cap >= got)
-                rc = tsimd_tokenizer_decode_parallel(
-                    self->tok, ids, (size_t)n, skip_special,
-                    self->dec_scratch, self->dec_scratch_cap, &got, 0);
+            char *outp = PyBytes_AS_STRING(out_obj);
+            Py_BEGIN_ALLOW_THREADS
+            pthread_mutex_lock(&self->mu);
+            rc = tsimd_tokenizer_decode_parallel(self->tok, ids, (size_t)n,
+                                                 skip_special,
+                                                 (uint8_t *)outp, total,
+                                                 &got, 0);
+            pthread_mutex_unlock(&self->mu);
+            Py_END_ALLOW_THREADS
+            if (rc != 0 || got == 0 || got > total) {
+                Py_DECREF(out_obj);
+                if (!have_view) free(ids);
+                PyBuffer_Release(&view);
+                PyErr_SetString(TokError, "decode failed");
+                return NULL;
+            }
+            if (got < (size_t)total &&
+                _PyBytes_Resize(&out_obj, (Py_ssize_t)got) != 0) {
+                out_obj = NULL;
+                if (!have_view) free(ids);
+                PyBuffer_Release(&view);
+                return NULL;
+            }
+            if (!have_view) free(ids);
+            PyBuffer_Release(&view);
+            return out_obj;
         }
     } else {
+        Py_BEGIN_ALLOW_THREADS
+        pthread_mutex_lock(&self->mu);
         rc = tsimd_tokenizer_decode_into(self->tok, ids, (size_t)n,
                                          skip_special, self->dec_scratch,
                                          self->dec_scratch_cap, &got);
@@ -456,9 +483,9 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
                                                  self->dec_scratch,
                                                  self->dec_scratch_cap, &got);
         }
+        pthread_mutex_unlock(&self->mu);
+        Py_END_ALLOW_THREADS
     }
-    pthread_mutex_unlock(&self->mu);
-    Py_END_ALLOW_THREADS
     if (!have_view) free(ids);
     PyBuffer_Release(&view);
     if (rc != 0 || got == 0) {

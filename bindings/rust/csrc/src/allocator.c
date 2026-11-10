@@ -2,6 +2,9 @@
 
 #include <sys/mman.h>
 
+#include <malloc.h>
+#include <pthread.h>
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,7 +77,35 @@ void *tsimd_arena_alloc(tsimd_arena_t *a, size_t size) {
     return tsimd_arena_alloc_aligned(a, size, sizeof(void *));
 }
 
+#define TSIMD_HUGE_MIN ((size_t)1 << 20)
+#define TSIMD_HUGE_KEEP 16
+#define TSIMD_HUGE_KEEP_BYTES ((size_t)512 << 20)
+
+static pthread_mutex_t g_huge_mu = PTHREAD_MUTEX_INITIALIZER;
+static void *g_huge_keep[TSIMD_HUGE_KEEP];
+static size_t g_huge_keep_sz[TSIMD_HUGE_KEEP];
+static int g_huge_keep_n;
+static size_t g_huge_keep_total;
+
 void *tsimd_xmalloc(size_t size) {
+    if (size >= TSIMD_HUGE_MIN) {
+        pthread_mutex_lock(&g_huge_mu);
+        int best = -1;
+        for (int i = 0; i < g_huge_keep_n; i++)
+            if (g_huge_keep_sz[i] >= size &&
+                (best < 0 || g_huge_keep_sz[i] < g_huge_keep_sz[best]))
+                best = i;
+        if (best >= 0) {
+            void *p = g_huge_keep[best];
+            g_huge_keep_total -= g_huge_keep_sz[best];
+            g_huge_keep_n--;
+            g_huge_keep[best] = g_huge_keep[g_huge_keep_n];
+            g_huge_keep_sz[best] = g_huge_keep_sz[g_huge_keep_n];
+            pthread_mutex_unlock(&g_huge_mu);
+            return p;
+        }
+        pthread_mutex_unlock(&g_huge_mu);
+    }
     void *p = malloc(size ? size : 1);
     if (!p) {
         fprintf(stderr, "tsimd: out of memory (%zu bytes)\n", size);
@@ -102,7 +133,24 @@ void *tsimd_xrealloc(void *p, size_t size) {
     return q;
 }
 
-void tsimd_xfree(void *p) { free(p); }
+void tsimd_xfree(void *p) {
+    if (!p) return;
+    size_t sz = malloc_usable_size(p);
+    if (sz >= TSIMD_HUGE_MIN) {
+        pthread_mutex_lock(&g_huge_mu);
+        if (g_huge_keep_n < TSIMD_HUGE_KEEP &&
+            g_huge_keep_total + sz <= TSIMD_HUGE_KEEP_BYTES) {
+            g_huge_keep[g_huge_keep_n] = p;
+            g_huge_keep_sz[g_huge_keep_n] = sz;
+            g_huge_keep_n++;
+            g_huge_keep_total += sz;
+            pthread_mutex_unlock(&g_huge_mu);
+            return;
+        }
+        pthread_mutex_unlock(&g_huge_mu);
+    }
+    free(p);
+}
 
 #define TSIMD_HUGE_ALIGN ((size_t)2 << 20)
 

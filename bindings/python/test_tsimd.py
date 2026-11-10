@@ -411,6 +411,22 @@ def main():
     else:
         fails += 1
         print("decode_into FAIL")
+    t5p = ROOT + "/models/reference/t5_spiece.model"
+    if os.path.exists(t5p):
+        t5 = tsimd.load(t5p, "sentencepiece")
+        big5 = ("una mattina mi svegliai; comunisme, caf\xc3\xa9 na\xc3\xafve "
+                "fa\xc3\xa7ade. " * 30000).encode("utf-8")
+        ids5 = t5.encode(big5)
+        w5 = t5.decode(ids5)
+        need5 = t5.decode_into(ids5, bytearray())
+        buf5 = bytearray(need5)
+        g5 = t5.decode_into(ids5, buf5)
+        if w5 != bytes(buf5[:g5]) or g5 < len(big5) // 2:
+            print("spm decode shrink mismatch")
+            fails += 1
+        else:
+            print("spm decode shrink OK")
+        del t5, ids5, w5, buf5, big5
     if batch_check(tok_b, [t.encode("utf-8") for t in TEXTS]):
         print("encode_batch OK")
     else:

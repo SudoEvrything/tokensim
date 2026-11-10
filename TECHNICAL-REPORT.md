@@ -71,9 +71,14 @@ owned buffer with no extra copy in Rust and C.
 Training-scale callers that tokenize gigabytes keep both legs in
 caller-owned buffers instead: `encode_threads_into` and
 `decode_into` in Python, `encode_into` and `decode_parallel` in
-Rust, the `_into` entries in C. That shape trades a few lines of
-setup for the last few percent; the two shapes sit side by side
-in `scripts/consumers/`, and every document they tokenize is
+Rust, the `_into` entries in C. On C and Rust the simple calls
+measure the same rates as the into shape (about 4 GB/s decode on
+the reference corpus): the engine recycles its large transient
+buffers internally, so the allocation the simple shape pays is
+warm. In Python the decode hands back a real bytes object, and
+that one copy is the difference (about 3.3 GB/s simple against
+4.3 GB/s into). The two shapes sit side by side in
+`scripts/consumers/`, and every document they tokenize is
 decoded and byte-compared before the program exits.
 
 ### The pipeline

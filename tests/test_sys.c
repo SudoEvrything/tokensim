@@ -1,5 +1,6 @@
 #include "tokensimd_sys.h"
 
+#include "allocator.h"
 #include "tokenizer.h"
 #include "batch.h"
 
@@ -22,6 +23,25 @@ static void check(int cond, const char *what) {
 
 int main(void) {
     char err[256];
+
+    {
+        uint8_t *p1 = tsimd_xmalloc(3u << 20);
+        check(p1 != NULL, "xmalloc 3MiB");
+        memset(p1, 0xAB, 3u << 20);
+        tsimd_xfree(p1);
+        uint8_t *p2 = tsimd_xmalloc(2u << 20);
+        check(p2 != NULL, "xmalloc 2MiB after the big free");
+        memset(p2, 0xCD, 2u << 20);
+        check(((uintptr_t)p2 & 15u) == 0, "xmalloc 16-byte alignment");
+        uint8_t *p3 = tsimd_xmalloc(1u << 20);
+        check(p3 != NULL, "xmalloc 1MiB");
+        tsimd_xfree(p3);
+        tsimd_xfree(p2);
+        void *z = tsimd_xmalloc(0);
+        check(z != NULL, "xmalloc 0");
+        tsimd_xfree(z);
+        tsimd_xfree(NULL);
+    }
 
     tsimd_sys *h = tsimd_sys_open(CL100K, "tiktoken", "cl100k", err, sizeof err);
     check(h != NULL, "open cl100k");

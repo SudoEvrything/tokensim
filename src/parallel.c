@@ -2382,16 +2382,37 @@ static int pool_run(tsimd_pool_t *p, job_t *jobs, idvec_t *outs,
 
 size_t tsimd_decode_chunk_ids = 1u << 16;
 
-int tsimd_tokenizer_decode_parallel(tsimd_tokenizer_t *t,
-                                    const uint32_t *ids, size_t n,
-                                    int skip_special, uint8_t *buf,
-                                    size_t cap, size_t *out_len,
-                                    int threads) {
+static int decode_parallel_core(tsimd_tokenizer_t *t, const uint32_t *ids,
+                                size_t n, int skip_special, uint8_t *buf,
+                                size_t cap, size_t *out_len, int threads,
+                                tsimd_byte_sequence_t *alloc_out) {
     if (out_len) *out_len = 0;
     if (!t || !ids) return -1;
     if (threads <= 0) threads = tsimd_default_threads();
     if (threads > TSIMD_POOL_MAX) threads = TSIMD_POOL_MAX;
     if (n < ((size_t)1 << 20) || threads <= 1) {
+        if (alloc_out) {
+            size_t total = 0;
+            if (tsimd_tokenizer_decode_into(t, ids, n, skip_special, NULL, 0,
+                                            &total) != 0)
+                return -1;
+            if (total == 0) {
+                alloc_out->bytes = NULL;
+                alloc_out->len = 0;
+                return 0;
+            }
+            uint8_t *abuf = tsimd_xmalloc(total);
+            if (!abuf) return -1;
+            size_t got = 0;
+            if (tsimd_tokenizer_decode_into(t, ids, n, skip_special, abuf,
+                                            total, &got) != 0) {
+                free(abuf);
+                return -1;
+            }
+            alloc_out->bytes = abuf;
+            alloc_out->len = got;
+            return 0;
+        }
         size_t got = 0;
         int rc = tsimd_tokenizer_decode_into(t, ids, n, skip_special, buf,
                                              cap, &got);
@@ -2439,7 +2460,26 @@ int tsimd_tokenizer_decode_parallel(tsimd_tokenizer_t *t,
     for (size_t c = 0; c < n_chunks; c++) base[c + 1] = base[c] + totals[c];
     size_t total = base[n_chunks];
     if (out_len) *out_len = total;
-    if (!buf || total > cap) {
+    if (!buf && alloc_out) {
+        if (total == 0) {
+            alloc_out->bytes = NULL;
+            alloc_out->len = 0;
+            free(totals);
+            free(base);
+            free(dummy);
+            free(jobs);
+            return 0;
+        }
+        buf = tsimd_xmalloc(total);
+        if (!buf) {
+            free(totals);
+            free(base);
+            free(dummy);
+            free(jobs);
+            return -1;
+        }
+        cap = total;
+    } else if (!buf || total > cap) {
         free(totals);
         free(base);
         free(dummy);
@@ -2480,7 +2520,29 @@ int tsimd_tokenizer_decode_parallel(tsimd_tokenizer_t *t,
         out = w;
     }
     if (out_len) *out_len = out;
+    if (alloc_out) {
+        alloc_out->bytes = buf;
+        alloc_out->len = out;
+    }
     return 0;
+}
+
+int tsimd_tokenizer_decode_parallel(tsimd_tokenizer_t *t,
+                                    const uint32_t *ids, size_t n,
+                                    int skip_special, uint8_t *buf,
+                                    size_t cap, size_t *out_len,
+                                    int threads) {
+    return decode_parallel_core(t, ids, n, skip_special, buf, cap, out_len,
+                                threads, NULL);
+}
+
+int tsimd_decode_parallel_alloc(tsimd_tokenizer_t *t, const uint32_t *ids,
+                                size_t n, int skip_special,
+                                tsimd_byte_sequence_t *out, int threads) {
+    out->bytes = NULL;
+    out->len = 0;
+    return decode_parallel_core(t, ids, n, skip_special, NULL, 0, NULL,
+                                threads, out);
 }
 
 typedef struct {

@@ -1951,24 +1951,13 @@ int tsimd_tokenizer_decode(const tsimd_tokenizer_t *t,
                            tsimd_byte_sequence_t *out) {
     out->bytes = NULL;
     out->len = 0;
-    size_t total = 0;
-    if (n >= ((size_t)1 << 18) &&
-        tsimd_tokenizer_decode_parallel(t, ids, n, skip_special, NULL, 0,
-                                        &total, 0) == 0 && total) {
-        uint8_t *pbuf = tsimd_xmalloc(total);
-        if (pbuf) {
-            size_t got = 0;
-            if (tsimd_tokenizer_decode_parallel(t, ids, n, skip_special,
-                                                pbuf, total, &got,
-                                                0) == 0 && got && got <= total) {
-                out->bytes = pbuf;
-                out->len = got;
-                return 0;
-            }
-            free(pbuf);
-        }
-        total = 0;
+    if (n >= ((size_t)1 << 18)) {
+        if (tsimd_decode_parallel_alloc(t, ids, n, skip_special, out, 0) == 0)
+            return 0;
+        out->bytes = NULL;
+        out->len = 0;
     }
+    size_t total = 0;
     if (tsimd_tokenizer_decode_into(t, ids, n, skip_special, NULL, 0,
                                     &total) != 0)
         return -1;
