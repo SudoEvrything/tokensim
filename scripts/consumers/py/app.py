@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-from tokensim import tokenizer, default_threads, fold_doc, bytes_equal
+from tokensim import tokenizer, default_threads, fold_doc
 
 PRIME = 0x100000001B3
 MASK = (1 << 64) - 1
@@ -35,7 +35,6 @@ def main():
     model, fmt, scheme, corpus = sys.argv[1:5]
     doc_bytes = int(sys.argv[5]) if len(sys.argv) > 5 else (16 << 20)
     prompt_calls = int(sys.argv[6]) if len(sys.argv) > 6 else 20000
-    threads = int(sys.argv[7]) if len(sys.argv) > 7 else 0
 
     tok = tokenizer(model, fmt, scheme)
     print(f"threads(auto): {default_threads()}")
@@ -48,29 +47,25 @@ def main():
     docs = 0
     enc_t = 0.0
     dec_t = 0.0
-    ebuf = bytearray(doc_bytes * 4 + 64)
-    dbuf = bytearray(doc_bytes + 64)
     t0 = time.perf_counter()
     with open(corpus, "rb") as f, mmap.mmap(f.fileno(), 0,
                                             access=mmap.ACCESS_READ) as mm:
         mm.madvise(mmap.MADV_SEQUENTIAL)
-        mv = memoryview(mm)
         for off in range(0, fsz, doc_bytes):
             n = min(fsz - off, doc_bytes)
+            doc = mm[off:off + n]
             a = time.perf_counter()
-            n_ids = tok.encode_threads_into(mv[off:off + n], ebuf, threads)
+            ids = tok.encode(doc)
             enc_t += time.perf_counter() - a
-            ids_view = memoryview(ebuf)[:n_ids * 4]
-            h = fold_doc(h, ids_view)
-            total += n_ids
+            h = fold_doc(h, ids)
+            total += len(ids) // 4
             docs += 1
             c = time.perf_counter()
-            got = tok.decode_into(ids_view, dbuf)
+            back = tok.decode(ids)
             dec_t += time.perf_counter() - c
             checked += 1
-            if not bytes_equal(dbuf[:got], mm[off:off + n]):
+            if back != doc:
                 bad += 1
-        mv.release()
     t1 = time.perf_counter()
     print(f"input: {fsz} bytes in {docs} docs of {doc_bytes} bytes")
     print(f"ids: {total}")
@@ -85,7 +80,7 @@ def main():
     pids = 0
     p0 = time.perf_counter()
     batch = tok.encode_batch([PROMPTS[i % 8].encode()
-                              for i in range(prompt_calls)], threads)
+                              for i in range(prompt_calls)])
     for raw in batch:
         count = len(raw) // 4
         ph = fold_count(ph, count)
