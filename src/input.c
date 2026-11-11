@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "allocator.h"
 
@@ -30,6 +31,7 @@ int tsimd_input_read_file(const char *path, tsimd_input_t *out) {
     while (got < size) {
         ssize_t n = read(fd, buf + got, size - got);
         if (n < 0) {
+            if (errno == EINTR) continue;
             free(buf);
             close(fd);
             return -1;

@@ -46,6 +46,7 @@ static int spm_parse_piece(const uint8_t *b, size_t i, size_t end,
             ni = spm_varint(b, i, end, &n);
             if (!ni || n > SPM_PIECE_MAX) return -1;
             i = ni;
+            if (i + n > end) return -1;
             if (f == 1) { str = (const char *)b + i; slen = (uint32_t)n; }
             i += n;
         } else if (wt == 5 && f == 2) {
@@ -108,6 +109,7 @@ int tsimd_spm_parse(const char *path, char ***out_str, uint32_t **out_score,
         ni = spm_varint(data, i, got, &plen);
         if (!ni) break;
         i = ni;
+        if (plen > (uint64_t)(got - i)) break;
         spm_piece_t p;
         if (spm_parse_piece(data, i, i + plen, &p) != 0) break;
         i += plen;

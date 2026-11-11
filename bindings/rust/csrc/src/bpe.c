@@ -1230,7 +1230,8 @@ static void spm_publish_shared(tsimd_pretok_cache_t *sh,
                 __atomic_store_n(&e0->ext, ext, __ATOMIC_RELAXED);
                 __atomic_store_n(&e0->key1, k1, __ATOMIC_RELEASE);
                 __atomic_fetch_add(&sh->count, 1, __ATOMIC_RELAXED);
-                if (tsimd_pcache_stats_on()) sh->inserts++;
+                if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&sh->inserts, 1, __ATOMIC_RELAXED);
                 return;
             }
             if (__atomic_load_n(&e0->key1, __ATOMIC_ACQUIRE) == k1 &&
@@ -1243,7 +1244,8 @@ static void spm_publish_shared(tsimd_pretok_cache_t *sh,
                 __atomic_store_n(&e1->ext, ext, __ATOMIC_RELAXED);
                 __atomic_store_n(&e1->key1, k1, __ATOMIC_RELEASE);
                 __atomic_fetch_add(&sh->count, 1, __ATOMIC_RELAXED);
-                if (tsimd_pcache_stats_on()) sh->inserts++;
+                if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&sh->inserts, 1, __ATOMIC_RELAXED);
                 return;
             }
             if (__atomic_load_n(&e1->key1, __ATOMIC_ACQUIRE) == k1 &&
@@ -3063,11 +3065,13 @@ uint32_t *tsimd_pcache_lookup_into_bounded(tsimd_pretok_cache_t *c,
                                            uint32_t *out,
                                            uint32_t *n_ids) {
     if (pcache_disabled()) {
-        if (tsimd_pcache_stats_on()) c->misses++;
+        if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&c->misses, 1, __ATOMIC_RELAXED);
         return NULL;
     }
     if (len == 0 || len > TSIMD_PCACHE_MAX_SPAN) {
-        if (tsimd_pcache_stats_on()) c->misses++;
+        if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&c->misses, 1, __ATOMIC_RELAXED);
         return NULL;
     }
     uint64_t k0, k1, hash;
@@ -3162,7 +3166,8 @@ void tsimd_pcache_insert_keyed(tsimd_pretok_cache_t *c, uint64_t k0,
                     __atomic_store_n(&e0->ext, ext, __ATOMIC_RELAXED);
                     __atomic_store_n(&e0->key1, k1, __ATOMIC_RELEASE);
                     __atomic_fetch_add(&c->count, 1, __ATOMIC_RELAXED);
-                    if (tsimd_pcache_stats_on()) c->inserts++;
+                    if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&c->inserts, 1, __ATOMIC_RELAXED);
                     return;
                 }
 
@@ -3176,7 +3181,8 @@ void tsimd_pcache_insert_keyed(tsimd_pretok_cache_t *c, uint64_t k0,
                     __atomic_store_n(&e1->ext, ext, __ATOMIC_RELAXED);
                     __atomic_store_n(&e1->key1, k1, __ATOMIC_RELEASE);
                     __atomic_fetch_add(&c->count, 1, __ATOMIC_RELAXED);
-                    if (tsimd_pcache_stats_on()) c->inserts++;
+                    if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&c->inserts, 1, __ATOMIC_RELAXED);
                     return;
                 }
 
@@ -3194,7 +3200,8 @@ void tsimd_pcache_insert_keyed(tsimd_pretok_cache_t *c, uint64_t k0,
                 __atomic_store_n(&e0->ext, ext, __ATOMIC_RELAXED);
                 e0->key1 = k1;
                 __atomic_fetch_add(&c->count, 1, __ATOMIC_RELAXED);
-                if (tsimd_pcache_stats_on()) c->inserts++;
+                if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&c->inserts, 1, __ATOMIC_RELAXED);
                 return;
             }
             if ((e1->key0 | e1->key1) == 0) {
@@ -3203,7 +3210,8 @@ void tsimd_pcache_insert_keyed(tsimd_pretok_cache_t *c, uint64_t k0,
                 __atomic_store_n(&e1->ext, ext, __ATOMIC_RELAXED);
                 e1->key1 = k1;
                 __atomic_fetch_add(&c->count, 1, __ATOMIC_RELAXED);
-                if (tsimd_pcache_stats_on()) c->inserts++;
+                if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&c->inserts, 1, __ATOMIC_RELAXED);
                 return;
             }
         }
@@ -3251,7 +3259,8 @@ void tsimd_pcache_insert_keyed_at(tsimd_pretok_cache_t *c, size_t slot,
         __atomic_store_n(&e->ext, ext, __ATOMIC_RELAXED);
         __atomic_store_n(&e->key1, k1, __ATOMIC_RELEASE);
         __atomic_fetch_add(&c->count, 1, __ATOMIC_RELAXED);
-        if (tsimd_pcache_stats_on()) c->inserts++;
+        if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&c->inserts, 1, __ATOMIC_RELAXED);
         return;
     }
     if (prev == k0 &&
@@ -3288,7 +3297,8 @@ void tsimd_pcache_insert_at_keyed(tsimd_pretok_cache_t *c, size_t slot,
         __atomic_store_n(&e->ext, ext, __ATOMIC_RELAXED);
         __atomic_store_n(&e->key1, k1, __ATOMIC_RELEASE);
         __atomic_fetch_add(&c->count, 1, __ATOMIC_RELAXED);
-        if (tsimd_pcache_stats_on()) c->inserts++;
+        if (tsimd_pcache_stats_on())
+        __atomic_fetch_add(&c->inserts, 1, __ATOMIC_RELAXED);
         return;
     }
     if (prev == k0 &&
@@ -3726,14 +3736,27 @@ void tsimd_plong_insert(tsimd_pretok_cache_t *c,
         __atomic_fetch_add(&c->lcount, 1, __ATOMIC_RELAXED);
     }
     size_t loff = 0;
+    int abort_claim = 0;
     if (spill) {
         loff = __atomic_fetch_add(&c->lids_used, (size_t)n,
                                   __ATOMIC_RELAXED);
-        if (loff + n > c->lids_cap) return;
+        if (loff + n > c->lids_cap) abort_claim = 1;
     }
-    size_t aoff = __atomic_fetch_add(&c->lused, (size_t)len,
-                                     __ATOMIC_RELAXED);
-    if (aoff + len > c->lcap) return;
+    size_t aoff = 0;
+    if (!abort_claim) {
+        aoff = __atomic_fetch_add(&c->lused, (size_t)len,
+                                  __ATOMIC_RELAXED);
+        if (aoff + len > c->lcap) abort_claim = 1;
+    }
+    if (abort_claim) {
+        if (__atomic_load_n(&lt[b].hash, __ATOMIC_RELAXED) == 0)
+            __atomic_fetch_sub(&c->lcount, 1, __ATOMIC_RELAXED);
+        __atomic_store_n(&lt[b].seq,
+                         __atomic_load_n(&lt[b].seq,
+                                         __ATOMIC_RELAXED) + 1,
+                         __ATOMIC_RELEASE);
+        return;
+    }
     if (spill) {
         __atomic_store_n(&lt[b].lensz,
                          (uint32_t)(len & 0x1FFFFFFFu) | (3u << 29) |

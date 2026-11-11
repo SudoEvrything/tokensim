@@ -76,6 +76,10 @@ typedef struct {
     uint32_t *gdst;
     const void *gsrc;
     size_t gj0, gj1;
+
+    size_t *gtot;
+    size_t *gbase;
+    int gskip;
 } job_t;
 
 typedef struct {
@@ -651,10 +655,12 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
         use_scalar = scalar_fill_enabled();
 #endif
 
-    static int twophase_force = -1;
-    if (twophase_force < 0) {
+    static _Atomic int twophase_force = -1;
+    if (atomic_load_explicit(&twophase_force, memory_order_relaxed) < 0) {
         const char *e = getenv("TSIMD_TWOPHASE_FILL");
-        twophase_force = (e && e[0] == '1') ? 1 : 0;
+        atomic_store_explicit(&twophase_force,
+                              (e && e[0] == '1') ? 1 : 0,
+                              memory_order_relaxed);
     }
     const int twophase = twophase_force;
 
@@ -965,7 +971,8 @@ static int fused_o200k_serve(worker_t *w, const uint8_t *data, size_t len,
             }
             j++;
         }
-        c->hits += bh;
+        __atomic_fetch_add(&c->hits, bh,
+                                  __ATOMIC_RELAXED);
         if (ph) {
             uint64_t now = ph_rdtsc();
             w->ph_fill += ph_t1 - ph_t0;
@@ -1252,7 +1259,8 @@ static int bserve_flush(bserve_ctx_t *f) {
             w->ws.out_count = wbase;
         }
     }
-    c->hits += bh;
+    __atomic_fetch_add(&c->hits, bh,
+                                  __ATOMIC_RELAXED);
     if (rc != 0) return rc;
     out->count = base + cur;
     return 0;
@@ -1412,25 +1420,21 @@ static void copy_stream_u32(uint32_t *dst, const uint32_t *src, size_t n) {
 #endif
 }
 
-static size_t *g_dec_totals;
-static size_t *g_dec_base;
-static int g_dec_skip;
-
 static int run_one_job(worker_t *w, const job_t *job, idvec_t *out) {
 
     if (job->kind == JOB_DECODE_TOTAL) {
         const uint32_t *ids = (const uint32_t *)job->data;
         int err = 0;
         size_t total =
-            tsimd_decode_ids_count(w->t, ids, job->len, g_dec_skip, &err);
+            tsimd_decode_ids_count(w->t, ids, job->len, job->gskip, &err);
         if (err) return -1;
-        g_dec_totals[job->doc] = total;
+        job->gtot[job->doc] = total;
         return 0;
     }
     if (job->kind == JOB_DECODE_WRITE) {
         const uint32_t *ids = (const uint32_t *)job->data;
-        size_t off = g_dec_base[job->doc];
-        tsimd_decode_ids_write(w->t, ids, job->len, g_dec_skip,
+        size_t off = job->gbase[job->doc];
+        tsimd_decode_ids_write(w->t, ids, job->len, job->gskip,
                                (uint8_t *)job->gdst, &off);
         return 0;
     }
@@ -1868,7 +1872,7 @@ static void pin_order_build(void) {
         }
         if (cur_proc < 0) continue;
         if (sscanf(line, "core id : %d", &v) == 1) {
-            if (v >= 0 && v < 512) {
+            if (v >= 0 && v < 512 && cur_proc >= 0 && cur_proc < 512) {
                 if (!seen[v]) {
                     seen[v] = 1;
                     first_of_core[v] = cur_proc;
@@ -2221,9 +2225,9 @@ void tsimd_tokenizer_cache_stats(const tsimd_tokenizer_t *t,
                                  size_t *inserts) {
     size_t h = 0, m = 0, ins = 0;
     if (t) {
-        h = t->cache.hits;
-        m = t->cache.misses;
-        ins = t->cache.inserts;
+        h = __atomic_load_n(&t->cache.hits, __ATOMIC_RELAXED);
+        m = __atomic_load_n(&t->cache.misses, __ATOMIC_RELAXED);
+        ins = __atomic_load_n(&t->cache.inserts, __ATOMIC_RELAXED);
         if (t->pool)
             for (int i = 0; i < t->pool->width; i++) {
                 if (!t->pool->workers[i].cache) continue;
@@ -2369,9 +2373,13 @@ static int pool_run(tsimd_pool_t *p, job_t *jobs, idvec_t *outs,
     pthread_cond_broadcast(&p->wake_cv);
     pthread_mutex_unlock(&p->mu);
 
-    if (p->width > 1) caller_pin();
-
-    drain_jobs(&p->workers[0]);
+    if (p->width > 1) {
+        caller_pin();
+        drain_jobs(&p->workers[0]);
+        tsimd_restore_process_affinity();
+    } else {
+        drain_jobs(&p->workers[0]);
+    }
 
     pthread_mutex_lock(&p->mu);
     while (atomic_load(&p->done) < (unsigned)p->n_spawned)
@@ -2440,8 +2448,6 @@ static int decode_parallel_core(tsimd_tokenizer_t *t, const uint32_t *ids,
         free(jobs);
         return -1;
     }
-    g_dec_skip = skip_special;
-    g_dec_totals = totals;
     for (size_t c = 0; c < n_chunks; c++) {
         size_t off = c * chunk;
         size_t cnt = n - off < chunk ? n - off : chunk;
@@ -2454,6 +2460,9 @@ static int decode_parallel_core(tsimd_tokenizer_t *t, const uint32_t *ids,
         jobs[c].gsrc = NULL;
         jobs[c].gj0 = 0;
         jobs[c].gj1 = 0;
+        jobs[c].gtot = totals;
+        jobs[c].gbase = base;
+        jobs[c].gskip = skip_special;
     }
     if (pool_run(t->pool, jobs, dummy, n_chunks, threads - 1) != 0) {
         free(totals);
@@ -2494,7 +2503,6 @@ static int decode_parallel_core(tsimd_tokenizer_t *t, const uint32_t *ids,
         free(jobs);
         return total && buf ? -1 : 0;
     }
-    g_dec_base = base;
     for (size_t c = 0; c < n_chunks; c++) {
         size_t off = c * chunk;
         size_t cnt = n - off < chunk ? n - off : chunk;
@@ -2503,6 +2511,8 @@ static int decode_parallel_core(tsimd_tokenizer_t *t, const uint32_t *ids,
         jobs[c].doc = c;
         jobs[c].kind = JOB_DECODE_WRITE;
         jobs[c].gdst = (uint32_t *)buf;
+        jobs[c].gbase = base;
+        jobs[c].gskip = skip_special;
     }
     int rc = pool_run(t->pool, jobs, dummy, n_chunks, threads - 1);
     free(totals);
@@ -3080,6 +3090,7 @@ int tsimd_tokenizer_encode_batch(tsimd_tokenizer_t *t,
         }
         size_t off = 0;
         out->offsets[0] = 0;
+        size_t flat_cap = total_len + 64;
         for (size_t d = 0; d < n_docs; d++) {
             tsimd_token_sequence_t seq;
             if (tsimd_tokenizer_encode(t, docs[d].data, docs[d].length,
@@ -3093,6 +3104,24 @@ int tsimd_tokenizer_encode_batch(tsimd_tokenizer_t *t,
                     tsimd_xfree(nlens);
                 }
                 return -1;
+            }
+            if (off + seq.count > flat_cap) {
+                while (flat_cap < off + seq.count) flat_cap *= 2;
+                uint32_t *grown =
+                    tsimd_xrealloc(flat, flat_cap * sizeof(uint32_t));
+                if (!grown) {
+                    tsimd_token_sequence_free(&seq);
+                    free(flat);
+                    free(out->offsets);
+                    if (ncopies) {
+                        for (size_t e = 0; e < n_docs; e++)
+                            tsimd_xfree(ncopies[e]);
+                        tsimd_xfree(ncopies);
+                        tsimd_xfree(nlens);
+                    }
+                    return -1;
+                }
+                flat = grown;
             }
             memcpy(flat + off, seq.ids, seq.count * sizeof(uint32_t));
             off += seq.count;

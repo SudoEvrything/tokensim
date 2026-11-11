@@ -266,10 +266,12 @@ tsimd_pretok_cache_t *tsimd_spm_worker_cache(tsimd_tokenizer_t *t, size_t idx,
     if (!t->spm_caches) return &t->cache;
     size_t want = 16;
     while (want < 20 && ((size_t)1 << (want - 1)) < chunk_len / 16) want++;
-    static long wc_bits = -1;
-    if (wc_bits < 0) {
+    static _Atomic long wc_bits = -1;
+    if (atomic_load_explicit(&wc_bits, memory_order_relaxed) < 0) {
         const char *e = getenv("TSIMD_SPM_WC_BITS");
-        wc_bits = e && e[0] ? strtol(e, NULL, 10) : 0;
+        atomic_store_explicit(&wc_bits,
+                              e && e[0] ? strtol(e, NULL, 10) : 0,
+                              memory_order_relaxed);
     }
     if (wc_bits >= 12 && wc_bits <= 22) want = (size_t)wc_bits;
     tsimd_pretok_cache_t *c = &t->spm_caches[idx];
@@ -1180,7 +1182,7 @@ int tsimd_encode_chunk_nfc_fused(tsimd_tokenizer_t *t,
     if (compat ? !tsimd_nfkc_may_change(p, n)
                : !tsimd_nfc_may_change(p, n))
         return encode_buffer(t, p, n, ws);
-    size_t need = n * 4 + 64;
+    size_t need = n * (compat ? 24 : 4) + 64;
     if (ws->nfc_cap < need) {
         uint8_t *nb = tsimd_xrealloc(ws->nfc_buf, need);
         if (!nb) return -1;
@@ -1246,7 +1248,9 @@ typedef struct {
 } pnorm_job_t;
 
 #if defined(__x86_64__) || defined(__i386__)
-static inline uint64_t pnorm_rdtsc(void) { return pnorm_rdtsc(); }
+static inline uint64_t pnorm_rdtsc(void) {
+    return __builtin_ia32_rdtsc();
+}
 #else
 static inline uint64_t pnorm_rdtsc(void) { return 0; }
 #endif
@@ -1349,6 +1353,7 @@ static uint8_t *nfc_normalize_all_impl(const tsimd_tokenizer_t *t,
         tsimd_xfree(norm);
         tsimd_xfree(sizes);
         tsimd_xfree(keep);
+        tsimd_xfree(doffs);
         return NULL;
     }
 
@@ -1361,6 +1366,7 @@ static uint8_t *nfc_normalize_all_impl(const tsimd_tokenizer_t *t,
     int nthreads = (int)n_chunks < 1 ? 1
                    : ((int)n_chunks < max_threads ? (int)n_chunks
                                                   : max_threads);
+    if (nthreads > 64) nthreads = 64;
     if (nthreads <= 1 || n_chunks == 1) {
 
         pnorm_job_t j = {t, data, norm, seams, n_chunks - 1, sizes,
@@ -1377,6 +1383,8 @@ static uint8_t *nfc_normalize_all_impl(const tsimd_tokenizer_t *t,
         pthread_t th[64];
         pnorm_job_t jobs[64];
         uint8_t *scratch[64];
+        int created[64];
+        memset(created, 0, sizeof created);
         size_t per = (n_chunks - 1) / (size_t)nthreads;
         size_t extra = (n_chunks - 1) % (size_t)nthreads;
 
@@ -1402,10 +1410,12 @@ static uint8_t *nfc_normalize_all_impl(const tsimd_tokenizer_t *t,
         if (ok) {
             for (int k = 0; k < nthreads; k++)
                 if (jobs[k].n_chunks &&
-                    pthread_create(&th[k], NULL, pnorm_worker, &jobs[k]) != 0)
+                    pthread_create(&th[k], NULL, pnorm_worker, &jobs[k]) == 0)
+                    created[k] = 1;
+                else
                     ok = 0;
             for (int k = 0; k < nthreads; k++)
-                if (jobs[k].n_chunks && ok) pthread_join(th[k], NULL);
+                if (created[k]) pthread_join(th[k], NULL);
             for (int k = 0; ok && k < nthreads; k++)
                 for (size_t q = 0; q < jobs[k].n_chunks; q++)
                     if (jobs[k].sizes[q] == (size_t)-1) ok = 0;

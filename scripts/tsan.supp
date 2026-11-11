@@ -1,0 +1,10 @@
+# The pcache entries use a claim-protocol write (key0 claim, key1
+# last) and a validating read (the 128-bit key snapshot, then the
+# atomic ACQUIRE value loads only after the key match). The 128-bit
+# key snapshot races the writer by design; a torn or stale snapshot
+# fails the match and the probe continues, so the access is
+# deliberate. Everything else TSan reports on these paths is a real
+# finding.
+race:tsimd_pcache_probe_serve
+race:tsimd_pcache_probe_merged
+race:tsimd_pcache_probe_merged_ns

@@ -160,7 +160,12 @@ int tsimd_sys_encode(tsimd_sys *h, const uint8_t *data, size_t len,
         if (!buf) return -1;
         memcpy(buf, seq->ids, seq->count * sizeof(uint32_t));
     }
-    if (ids) *ids = buf;
+    if (ids) {
+        *ids = buf;
+    } else {
+        tsimd_xfree(buf);
+        buf = NULL;
+    }
     if (n_ids) *n_ids = seq->count;
     return 0;
 }
@@ -223,7 +228,11 @@ int tsimd_sys_decode(tsimd_sys *h, const uint32_t *ids, size_t n,
     tsimd_byte_sequence_t dec;
     if (tsimd_tokenizer_decode(&h->tok, ids, n, skip_special, &dec) != 0)
         return -1;
-    if (bytes) *bytes = dec.bytes;
+    if (bytes) {
+        *bytes = dec.bytes;
+    } else {
+        tsimd_byte_sequence_free(&dec);
+    }
     if (n_bytes) *n_bytes = dec.len;
     return 0;
 }

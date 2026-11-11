@@ -141,7 +141,18 @@ int tsimd_pretokenize_stream(tsimd_pretok_scheme_t scheme,
             }
             return 0;
         }
-        return tsimd_pretokenize_o200k(data, len, out);
+        if ((data == NULL && len > 0) || out == NULL) return -1;
+        if (scheme == TSIMD_PRETOK_O200K)
+            return tsimd_pretokenize_o200k(data, len, out);
+        if (scheme == TSIMD_PRETOK_NEMO)
+            return tsimd_pretokenize_nemo(data, len, out);
+        if (scheme == TSIMD_PRETOK_QWEN25)
+            return tsimd_pretokenize_qwen25(data, len, out);
+        if (scheme == TSIMD_PRETOK_GPT2D)
+            return tsimd_pretokenize_gpt2d(data, len, out);
+        if (scheme == TSIMD_PRETOK_KIMI)
+            return tsimd_pretokenize_kimi(data, len, out);
+        return tsimd_pretokenize_deepseek(data, len, out);
     }
     return tsimd_pretokenize_simd_ex(scheme, data, len, fn, ud, out);
 }
