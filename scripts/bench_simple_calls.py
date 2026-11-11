@@ -63,11 +63,11 @@ def run_tiktoken():
 def run_hf():
     from tokenizers import Tokenizer
     for name, path in [
+        ("hf gpt-oss (the o200k-harmony json)",
+         "models/reference/gptoss_tokenizer.json"),
         ("hf deepseek",
          "models/reference/deepseek_tokenizer.json"),
         ("hf qwen3", "models/reference/qwen3_tokenizer.json"),
-        ("hf llama3 (the cl100k-pattern json)",
-         "models/reference/llama3_tokenizer.json"),
     ]:
         bench(
             name,
