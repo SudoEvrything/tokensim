@@ -46,6 +46,34 @@ dependency chain and peak early. Every row is byte-exact against
 the family's reference; the ladder also checks the per-family
 corpus hashes at each thread count (0 mismatches).
 
+## Simple calls: every engine, the way a real program calls it
+
+One 16.8 MB document, best of 3 warm reps (the cold first call
+printed too), no custom drivers - each engine's default public
+API, as shipped. The id counts are cross-checked in the script:
+tokensim, tiktoken and gigatoken agree exactly
+(3,618,117 cl100k / 3,590,319 o200k); the HF rows are different
+tokenizers (their own ids).
+
+| engine (the call) | cold MB/s | warm MB/s |
+| --- | --- | --- |
+| tokensim, Python `tp.encode(data)` (auto threads) | 1638.0 | **3288.8** |
+| tokensim, C `encode_parallel(..., 0, ...)` (one-shot process) | 1032.5 | - |
+| tokensim, Rust `tok.encode(doc)` (one-shot process) | 798.3 | - |
+| gigatoken `tk.encode(text)` (rayon) | 623.3 | 726.1 |
+| tiktoken `enc.encode_ordinary(text)` (single thread) | 34.7 | 34.7 |
+| HF tokenizers deepseek `tok.encode(text)` | 2.2 | 2.4 |
+| HF tokenizers qwen3 `tok.encode(text)` | 2.2 | 2.2 |
+
+The o200k rows: tokensim 1752.1/3235.8 (cold/warm), gigatoken
+396.3/664.6, tiktoken 34.7/34.7. The scalar engine the 17.8x
+claim was measured against is tiktoken's own single-threaded
+`encode_ordinary` call - the simple call, not a specialized API.
+
+Reproduce: `scripts/bench_simple_calls.py` (the tiktoken, the HF
+and the gigatoken rows need the pip packages; the C and Rust rows
+come from the consumers in `scripts/consumers/`).
+
 ## Against the scalar reference engines
 
 (single thread, warm, the same 16 MB natural-text corpus, the

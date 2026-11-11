@@ -1,3 +1,4 @@
+#include "allocator.h"
 #include "tokenizer.h"
 
 #include <stdio.h>
