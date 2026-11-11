@@ -307,7 +307,10 @@ static void classify_uni_nemo(const uint8_t *d, size_t scan, uint64_t m,
             while (e < 64 && (d[scan + e] == '\r' || d[scan + e] == '\n' ||
                               d[scan + e] == '/'))
                 e++;
-            if (e > i + 1) u->resid |= (((1ull << (e - i)) - 1) << i);
+            if (e > i + 1)
+            u->resid |= (e - i == 64)
+                            ? ~0ull
+                            : (((1ull << (e - i)) - 1) << i);
             m &= ~chm;
             continue;
         }

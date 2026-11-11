@@ -165,7 +165,7 @@ static size_t word_end(const uint8_t *d, size_t n, size_t start) {
         }
         kmask_t m;
         kimi_masks_load(d + p, &m);
-        if (m.high) break;
+        if (m.high) return p + (size_t)__builtin_ctzll(m.high);
         if (!(m.letter & 1)) break;
         uint64_t inv = ~m.letter;
         unsigned t = inv ? (unsigned)__builtin_ctzll(inv) : 64;

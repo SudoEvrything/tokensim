@@ -545,29 +545,23 @@ static void seek(sw_t *st, size_t pos) {
     }
 
     {
-        size_t off = pos;
-        size_t t = 0;
-        while (off > 0) {
-            size_t start = off - 1;
+        size_t q = pos;
+        int cnt = 0;
+        while (q > 0) {
+            size_t start = q - 1;
             while (start > 0 && (st->data[start] & 0xC0) == 0x80) start--;
-
-            size_t ncont = off - 1 - start;
-            uint8_t lb = st->data[start];
-            size_t elen = (lb & 0xC0) == 0xC0 ? 2
-                          : (lb & 0xE0) == 0xE0 ? 3
-                          : (lb & 0xF8) == 0xF0 ? 4 : 1;
-            if (lb < 0x80 || ncont + 1 != elen) break;
             uint32_t cp;
             tsimd_char_class_t cls;
-            tsimd_utf8_next(st->data + start, st->len - start, &cp, &cls);
-            if (cls != TSIMD_CLASS_NUMBER) break;
-            t++;
-            off = start;
+            size_t adv = tsimd_utf8_next(st->data + start, q - start, &cp,
+                                         &cls);
+            if (adv == 0 || cls != TSIMD_CLASS_NUMBER) break;
+            cnt++;
+            q = start;
         }
-        st->d_open = (t > 0);
-        st->d_phase = (unsigned)(t % 3);
-        st->d1 = (t >= 1);
-        st->d2 = (t >= 2);
+        st->d_open = (cnt > 0);
+        st->d_phase = (unsigned)(cnt % 3);
+        st->d1 = (cnt >= 1);
+        st->d2 = (cnt >= 2);
     }
 
     {

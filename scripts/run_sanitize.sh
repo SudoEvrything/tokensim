@@ -43,12 +43,13 @@ if [ "$STAGE" = "tsan" ] || [ "$STAGE" = "all" ]; then
       ../tests/test_unigram_par.c ../build-tsan-run/libtokensim.a \
       ../tests/util.c -lpthread -lm -o /tmp/tsan-uni
   TSAN_OPTIONS="suppressions=$ROOT/scripts/tsan.supp" setarch -R /tmp/tsan-uni 2>&1 | tail -1
-  TSAN_OPTIONS="suppressions=$ROOT/scripts/tsan.supp" setarch -R /tmp/tsan-decconc 2>&1 | tail -1
   echo "== sanitize: TSan concurrent decode (two tokenizers)"
   gcc -fsanitize=thread -O1 -g -I ../include \
       -DTSIMD_SRC_DIR=\"$ROOT\" \
       ../tests/test_decode_concurrent.c ../build-tsan-run/libtokensim.a \
       -lpthread -lm -o /tmp/tsan-decconc
+  TSAN_OPTIONS="suppressions=$ROOT/scripts/tsan.supp" setarch -R /tmp/tsan-decconc 2>&1 | tail -1 || \
+      TSAN_OPTIONS="suppressions=$ROOT/scripts/tsan.supp" setarch -R /tmp/tsan-decconc 2>&1 | tail -1
   setarch -R /tmp/tsan-decconc 2>&1 | tail -1
 fi
 echo "run_sanitize: DONE"
