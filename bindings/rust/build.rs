@@ -17,6 +17,7 @@ fn main() {
 
     if let Ok(dir) = env::var("TOKENSIMD_LIB_DIR") {
         println!("cargo:rustc-link-search=native={dir}");
+        println!("cargo:rustc-link-lib=static=tokensim");
         link_libs(&target);
         return;
     }

@@ -83,6 +83,7 @@ static PyObject *tok_encode(TokObject *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "y*", &view)) return NULL;
     size_t count = 0;
     int rc;
+    PyObject *res = NULL;
     Py_BEGIN_ALLOW_THREADS
     pthread_mutex_lock(&self->mu);
     rc = tok_scratch_reserve(self, (size_t)view.len);
@@ -90,14 +91,20 @@ static PyObject *tok_encode(TokObject *self, PyObject *args) {
         rc = tsimd_tokenizer_encode_parallel_into(
             self->tok, (const uint8_t *)view.buf, (size_t)view.len, 0,
             self->scratch, self->scratch_cap, &count);
+    if (rc == 0) {
+        PyGILState_STATE gst = PyGILState_Ensure();
+        res = PyBytes_FromStringAndSize((const char *)self->scratch,
+                                        (Py_ssize_t)count * 4);
+        PyGILState_Release(gst);
+    }
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
-    if (rc != 0) {
+    if (rc != 0 || !res) {
         PyErr_SetString(TokError, "encode failed");
         return NULL;
     }
-    return tok_scratch_result(self, count);
+    return res;
 }
 
 static PyObject *tok_call(TokObject *self, PyObject *args, PyObject *kwargs) {
@@ -114,6 +121,7 @@ static PyObject *tok_encode_list(TokObject *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "y*", &view)) return NULL;
     size_t count = 0;
     int rc;
+    PyObject *list = NULL;
     Py_BEGIN_ALLOW_THREADS
     pthread_mutex_lock(&self->mu);
     rc = tok_scratch_reserve(self, (size_t)view.len);
@@ -121,22 +129,33 @@ static PyObject *tok_encode_list(TokObject *self, PyObject *args) {
         rc = tsimd_tokenizer_encode_parallel_into(
             self->tok, (const uint8_t *)view.buf, (size_t)view.len, 0,
             self->scratch, self->scratch_cap, &count);
+    if (rc == 0) {
+        PyGILState_STATE gst = PyGILState_Ensure();
+        list = PyList_New((Py_ssize_t)count);
+        if (!list) {
+            PyGILState_Release(gst);
+            rc = -1;
+        } else {
+            for (size_t i = 0; i < count; i++) {
+                PyObject *v =
+                    PyLong_FromUnsignedLong(self->scratch[i]);
+                if (!v || PyList_SetItem(list, (Py_ssize_t)i, v) != 0) {
+                    Py_XDECREF(v);
+                    Py_DECREF(list);
+                    list = NULL;
+                    rc = -1;
+                    break;
+                }
+            }
+            if (list) PyGILState_Release(gst);
+        }
+    }
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
-    if (rc != 0) {
+    if (rc != 0 || !list) {
         PyErr_SetString(TokError, "encode failed");
         return NULL;
-    }
-    PyObject *list = PyList_New((Py_ssize_t)count);
-    if (!list) return NULL;
-    for (size_t i = 0; i < count; i++) {
-        PyObject *v = PyLong_FromUnsignedLong(self->scratch[i]);
-        if (!v || PyList_SetItem(list, (Py_ssize_t)i, v) != 0) {
-            Py_XDECREF(v);
-            Py_DECREF(list);
-            return NULL;
-        }
     }
     return list;
 }
@@ -146,6 +165,7 @@ static PyObject *tok_encode_bytes(TokObject *self, PyObject *args) {
     if (!PyArg_ParseTuple(args, "y*", &view)) return NULL;
     size_t count = 0;
     int rc;
+    PyObject *res = NULL;
     Py_BEGIN_ALLOW_THREADS
     pthread_mutex_lock(&self->mu);
     rc = tok_scratch_reserve(self, (size_t)view.len);
@@ -153,14 +173,20 @@ static PyObject *tok_encode_bytes(TokObject *self, PyObject *args) {
         rc = tsimd_tokenizer_encode_parallel_into(
             self->tok, (const uint8_t *)view.buf, (size_t)view.len, 0,
             self->scratch, self->scratch_cap, &count);
+    if (rc == 0) {
+        PyGILState_STATE gst = PyGILState_Ensure();
+        res = PyBytes_FromStringAndSize((const char *)self->scratch,
+                                        (Py_ssize_t)count * 4);
+        PyGILState_Release(gst);
+    }
     pthread_mutex_unlock(&self->mu);
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&view);
-    if (rc != 0) {
+    if (rc != 0 || !res) {
         PyErr_SetString(TokError, "encode failed");
         return NULL;
     }
-    return tok_scratch_result(self, count);
+    return res;
 }
 
 static PyObject *tok_encode_threads(TokObject *self, PyObject *args) {
@@ -388,7 +414,8 @@ static void *py_dec_alloc(void *ud, size_t total) {
     return u->buf;
 }
 
-static PyObject *tok_decode(TokObject *self, PyObject *args) {    PyObject *obj;
+static PyObject *tok_decode(TokObject *self, PyObject *args) {
+    PyObject *obj;
     int skip_special = 0;
     if (!PyArg_ParseTuple(args, "O|p", &obj, &skip_special)) return NULL;
     uint32_t *ids = NULL;
@@ -404,6 +431,12 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {    PyObject *obj;
             unsigned long v = PyLong_AsUnsignedLong(PyList_GetItem(obj, i));
             if (v == (unsigned long)-1 && PyErr_Occurred()) {
                 free(ids);
+                return NULL;
+            }
+            if (v > 0xFFFFFFFFul) {
+                free(ids);
+                PyErr_SetString(PyExc_OverflowError,
+                                "token ids must fit in 32 bits");
                 return NULL;
             }
             ids[i] = (uint32_t)v;
@@ -435,6 +468,7 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {    PyObject *obj;
     }
     size_t got = 0;
     int rc = 0;
+    PyObject *res = NULL;
     if (n >= (1u << 18)) {
         py_dec_alloc_ud_t ud = {NULL, NULL, 0};
         Py_BEGIN_ALLOW_THREADS
@@ -444,6 +478,11 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {    PyObject *obj;
                                             &got, 0);
         pthread_mutex_unlock(&self->mu);
         Py_END_ALLOW_THREADS
+        if (rc != 0 && PyErr_Occurred()) {
+            if (!have_view) free(ids);
+            PyBuffer_Release(&view);
+            return NULL;
+        }
         if (rc == 0 && ud.obj && got > 0 && got <= ud.total) {
             if (got < ud.total &&
                 _PyBytes_Resize(&ud.obj, (Py_ssize_t)got) != 0) {
@@ -457,13 +496,11 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {    PyObject *obj;
             return ud.obj;
         }
         if (ud.obj) Py_DECREF(ud.obj);
-        if (rc != 0 || got == 0) {
-            if (!have_view) free(ids);
-            PyBuffer_Release(&view);
+        if (rc == 0) {
+            res = PyBytes_FromStringAndSize("", 0);
+        } else if (!PyErr_Occurred()) {
             PyErr_SetString(TokError, "decode failed");
-            return NULL;
         }
-        got = 0;
     } else {
         Py_BEGIN_ALLOW_THREADS
         pthread_mutex_lock(&self->mu);
@@ -484,17 +521,23 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {    PyObject *obj;
                                                  self->dec_scratch,
                                                  self->dec_scratch_cap, &got);
         }
+        if (rc == 0) {
+            PyGILState_STATE gst = PyGILState_Ensure();
+            res = PyBytes_FromStringAndSize(
+                (const char *)self->dec_scratch, (Py_ssize_t)got);
+            PyGILState_Release(gst);
+        }
         pthread_mutex_unlock(&self->mu);
         Py_END_ALLOW_THREADS
     }
     if (!have_view) free(ids);
     PyBuffer_Release(&view);
-    if (rc != 0 || got == 0) {
-        PyErr_SetString(TokError, "decode failed");
+    if (rc != 0 || !res) {
+        if (!PyErr_Occurred())
+            PyErr_SetString(TokError, "decode failed");
         return NULL;
     }
-    return PyBytes_FromStringAndSize((const char *)self->dec_scratch,
-                                     (Py_ssize_t)got);
+    return res;
 }
 
 static PyMethodDef Tok_methods[] = {
@@ -580,6 +623,8 @@ static PyObject *mod_load(PyObject *self, PyObject *args) {
 static PyObject *mod_bytes_equal(PyObject *self, PyObject *args) {
     (void)self;
     Py_buffer a, b;
+    memset(&a, 0, sizeof a);
+    memset(&b, 0, sizeof b);
     if (!PyArg_ParseTuple(args, "OO", &a, &b)) return NULL;
     if (PyObject_GetBuffer((PyObject *)PyTuple_GetItem(args, 0), &a,
                            PyBUF_CONTIG_RO) != 0)

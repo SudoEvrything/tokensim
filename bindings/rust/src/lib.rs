@@ -327,7 +327,11 @@ impl Tokenizer {
                 ids.as_ptr(),
                 ids.len(),
                 skip_special as c_int,
-                out.as_mut_ptr(),
+                if out.is_empty() {
+                    ptr::null_mut()
+                } else {
+                    out.as_mut_ptr()
+                },
                 out.len(),
                 &mut n,
                 threads.min(c_int::MAX as usize) as c_int,

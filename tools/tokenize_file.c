@@ -234,7 +234,14 @@ int main(int argc, char **argv) {
                 buf = grown;
             }
             size_t got = fread(buf + len, 1, cap - len, stdin);
-            if (got == 0) break;
+            if (got == 0) {
+                if (ferror(stdin)) {
+                    fprintf(stderr, "read error on stdin\n");
+                    free(buf);
+                    return 1;
+                }
+                break;
+            }
             len += got;
         }
         in.data = buf;
@@ -247,6 +254,9 @@ int main(int argc, char **argv) {
         if (tsimd_tokenizer_encode_parallel(&t, in.data, in.length,
                                            n_threads, &seq) != 0) {
             fprintf(stderr, "tokenization failed\n");
+            tsimd_tokenizer_free(&t);
+            tsimd_input_release(&in);
+            free(copy);
             return 1;
         }
     } else if (tsimd_tokenizer_encode(&t, in.data, in.length, &seq) != 0) {
