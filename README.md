@@ -1,15 +1,17 @@
 # tokensim
 
-The fastest tokenizer engine written in C/C++, 84x faster than tiktoken, 1.39x against [gigatoken](https://github.com/marcelroed/gigatoken). No regex
-engine: hand-written scanners and bitmask algebra over 64-byte
-blocks, with parallel output equal to sequential output at any
-thread count, proven by test.
+Byte-exact tokenizers for 13 model families (GPT-4, Llama-3,
+DeepSeek, Qwen, Gemma, Kimi and more), written in C with SIMD
+pretokenization: no regex engine, hand-written scanners and
+bitmask algebra over 64-byte blocks, and parallel encode/decode
+that provably never changes the output at any thread count.
 
-The fastest family (o200k)
-encodes at 571 MB/s single-threaded and 2709 MB/s with a 6-thread
-parallel call, against tiktoken's 32.5 MB/s on the same input.
-That is **17.8x per call, 84x parallel**, byte-identical output (the
-very first call pays one-time cache warm-up: 259 MB/s).
+**17.8x tiktoken per thread** (o200k, same corpus, same window:
+571 MB/s vs 32.1 MB/s, both single-threaded), **2709 MB/s** with a
+6-thread call, byte-identical output. Against the fastest Rust
+engine we know of ([gigatoken](https://github.com/marcelroed/gigatoken)),
+same-window A/B: 1.12-1.45x warm at 6-10 threads, 0.87-0.90x
+single-thread cold - that gap is recorded, not explained away.
 
 > **Documentation:** [BENCHMARKS.md](BENCHMARKS.md) - the numbers ·
 > [TECHNICAL-REPORT.md](TECHNICAL-REPORT.md) - the deep-dive
