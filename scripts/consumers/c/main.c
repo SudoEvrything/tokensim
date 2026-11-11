@@ -109,20 +109,25 @@ int main(int argc, char **argv) {
     unsigned long long total = 0, checked = 0, bad = 0;
     size_t docs = 0;
     double enc_t = 0, dec_t = 0;
+    long reps = argc > 8 ? strtol(argv[8], NULL, 10) : 1;
+    if (reps < 1) reps = 1;
     double t0 = now();
+    double best_enc = 1e18, best_dec = 1e18;
+    for (long rep = 0; rep < reps; rep++) {
+    double rep_enc = 0, rep_dec = 0;
     for (size_t off = 0; off < (size_t)fsz; off += doc_bytes) {
         size_t n = (size_t)fsz - off < doc_bytes ? (size_t)fsz - off
                                                  : doc_bytes;
         tsimd_token_sequence_t ids;
         memset(&ids, 0, sizeof ids);
         double a = now();
-        if (tsimd_tokenizer_encode_parallel(&t, buf + off, n, threads,
-                                            &ids) != 0) {
+        if (tsimd_tokenizer_encode_auto(&t, buf + off, n, &ids) != 0) {
             fprintf(stderr, "encode failed\n");
             return 1;
         }
         double b = now();
         enc_t += b - a;
+        rep_enc += b - a;
         h = fold_u64(h, (uint64_t)ids.count);
         size_t head = ids.count < 4096 ? ids.count : 4096;
         h = fold_ids(h, ids.ids, head);
@@ -136,6 +141,7 @@ int main(int argc, char **argv) {
         int drc = tsimd_tokenizer_decode(&t, ids.ids, ids.count, 0, &back);
         double d = now();
         dec_t += d - c;
+        rep_dec += d - c;
         if (drc != 0 || back.len != n ||
             memcmp(back.bytes, buf + off, n) != 0)
             bad++;
@@ -143,18 +149,21 @@ int main(int argc, char **argv) {
         tsimd_byte_sequence_free(&back);
         tsimd_token_sequence_free(&ids);
     }
+    if (rep_enc < best_enc) best_enc = rep_enc;
+    if (rep_dec < best_dec) best_dec = rep_dec;
+    }
     double t1 = now();
     printf("input: %ld bytes in %zu docs of %zu bytes\n", fsz, docs, doc_bytes);
     printf("ids: %llu\n", total);
     printf("hash: 0x%016llx\n", (unsigned long long)h);
     printf("roundtrip: %s (%llu checked)\n", bad == 0 ? "ok" : "MISMATCH",
            checked);
-    printf("encode: %.3f s = %.1f MB/s\n", enc_t,
-           (double)fsz / 1e6 / enc_t);
-    printf("decode: %.3f s = %.1f MB/s\n", dec_t,
-           (double)fsz / 1e6 / dec_t);
+    printf("encode: %.3f s = %.1f MB/s\n", best_enc,
+           (double)fsz / 1e6 / best_enc);
+    printf("decode: %.3f s = %.1f MB/s\n", best_dec,
+           (double)fsz / 1e6 / best_dec);
     printf("docs (round trip): %.3f s = %.1f MB/s\n", t1 - t0,
-           (double)fsz / 1e6 / (t1 - t0));
+           (double)fsz * reps / 1e6 / (t1 - t0));
 
     static const char *prompts[8] = {
         "Summarize the following article in one sentence.",

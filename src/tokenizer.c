@@ -297,6 +297,9 @@ tsimd_pretok_cache_t *tsimd_spm_worker_cache(tsimd_tokenizer_t *t, size_t idx,
 }
 
 void tsimd_tokenizer_free(tsimd_tokenizer_t *t) {
+    tsimd_xfree(t->enc_auto);
+    t->enc_auto = NULL;
+    t->enc_auto_cap = 0;
     if (t->magic_ != TSIMD_TOKENIZER_MAGIC) {
         memset(t, 0, sizeof(*t));
         return;
@@ -1803,6 +1806,29 @@ int tsimd_tokenizer_encode_into(tsimd_tokenizer_t *t, const uint8_t *data,
     seq->count = count;
     seq->cap = cap;
     return rc;
+}
+
+int tsimd_tokenizer_encode_auto(tsimd_tokenizer_t *t, const uint8_t *data,
+                                size_t len, tsimd_token_sequence_t *out) {
+    if (!t || !data || !out) return -1;
+    size_t bound = tsimd_tokenizer_encode_bound(t, len);
+    if (t->enc_auto_cap < bound) {
+        size_t cap = t->enc_auto_cap ? t->enc_auto_cap : 4096;
+        while (cap < bound) cap *= 2;
+        uint32_t *grown = tsimd_xrealloc(t->enc_auto, cap * sizeof(uint32_t));
+        if (!grown) return -1;
+        t->enc_auto = grown;
+        t->enc_auto_cap = cap;
+    }
+    if (tsimd_tokenizer_encode_parallel_into(t, data, len, 0, t->enc_auto,
+                                             t->enc_auto_cap,
+                                             &out->count) != 0)
+        return -1;
+    out->ids = tsimd_xmalloc(out->count * sizeof(uint32_t));
+    if (!out->ids) return -1;
+    memcpy(out->ids, t->enc_auto, out->count * sizeof(uint32_t));
+    out->cap = out->count;
+    return 0;
 }
 
 size_t tsimd_tokenizer_encode_bound(const tsimd_tokenizer_t *t, size_t len) {

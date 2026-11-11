@@ -68,6 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         0
     };
+    let reps: usize = if args.len() > 8 {
+        args[8].parse().unwrap_or(1)
+    } else {
+        1
+    };
     let fmt = format_of(&args[2]).ok_or("unknown format")?;
     let mut tok = Tokenizer::open(&args[1], fmt, Some(&args[3]))?;
     println!("threads(auto): {}", default_threads());
@@ -83,7 +88,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut docs: u64 = 0;
     let mut enc_t = 0f64;
     let mut dec_t = 0f64;
+    let mut best_enc = f64::MAX;
+    let mut best_dec = f64::MAX;
     let t0 = Instant::now();
+    for _rep in 0..reps {
+    let mut rep_enc = 0f64;
+    let mut rep_dec = 0f64;
     let mut off: usize = 0;
     loop {
         let n = usize::min(fsz as usize - off, doc_bytes);
@@ -93,7 +103,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let doc = &mmap[off..off + n];
         let a = Instant::now();
         let ids = tok.encode(doc)?.to_vec();
-        enc_t += a.elapsed().as_secs_f64();
+        let e = a.elapsed().as_secs_f64();
+        enc_t += e;
+        rep_enc += e;
         fold_count(&mut h, ids.len() as u64);
         let head = ids.len().min(4096);
         fold_ids(&mut h, &ids[..head]);
@@ -104,12 +116,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         docs += 1;
         let c = Instant::now();
         let back = tok.decode(&ids)?;
-        dec_t += c.elapsed().as_secs_f64();
+        let d = c.elapsed().as_secs_f64();
+        dec_t += d;
+        rep_dec += d;
         checked += 1;
         if back.len() != n || &mmap[off..off + n] != back.as_slice() {
             bad += 1;
         }
         off += n;
+    }
+    if rep_enc < best_enc {
+        best_enc = rep_enc;
+    }
+    if rep_dec < best_dec {
+        best_dec = rep_dec;
+    }
     }
     let elapsed = t0.elapsed().as_secs_f64();
     println!("input: {} bytes in {} docs of {} bytes", fsz, docs, doc_bytes);
@@ -120,12 +141,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if bad == 0 { "ok" } else { "MISMATCH" },
         checked
     );
-    println!("encode: {:.3} s = {:.1} MB/s", enc_t, fsz as f64 / 1e6 / enc_t);
-    println!("decode: {:.3} s = {:.1} MB/s", dec_t, fsz as f64 / 1e6 / dec_t);
+    println!("encode: {:.3} s = {:.1} MB/s", best_enc,
+             fsz as f64 / 1e6 / best_enc);
+    println!("decode: {:.3} s = {:.1} MB/s", best_dec,
+             fsz as f64 / 1e6 / best_dec);
     println!(
         "docs (round trip): {:.3} s = {:.1} MB/s",
         elapsed,
-        fsz as f64 / 1e6 / elapsed
+        fsz as f64 * reps as f64 / 1e6 / elapsed
     );
 
     let mut ph = FNV0;

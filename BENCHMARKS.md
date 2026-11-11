@@ -57,16 +57,24 @@ tokenizers (their own ids).
 
 | engine (the call) | cold MB/s | warm MB/s |
 | --- | --- | --- |
-| tokensim, Python `tp.encode(data)` (auto threads) | 1638.0 | **3288.8** |
-| tokensim, C `encode_parallel(..., 0, ...)` (one-shot process) | 1032.5 | - |
-| tokensim, Rust `tok.encode(doc)` (one-shot process) | 798.3 | - |
-| gigatoken `tk.encode(text)` (rayon) | 623.3 | 726.1 |
-| tiktoken `enc.encode_ordinary(text)` (single thread) | 34.7 | 34.7 |
+| tokensim, Python `tp.encode(data)` (auto threads) | 1819.8 | **3242.6** |
+| tokensim, C `encode_auto(...)` (the default, 3 warm reps) | - | **2714.4** |
+| tokensim, Rust `tok.encode(doc)` (3 warm reps) | - | 2396.1 |
+| gigatoken `tk.encode(text)` (rayon) | 612.2 | 717.7 |
+| tiktoken `enc.encode_ordinary(text)` (single thread) | 23.7 | 23.7 |
 | HF tokenizers deepseek `tok.encode(text)` | 2.2 | 2.4 |
-| HF tokenizers qwen3 `tok.encode(text)` | 2.2 | 2.2 |
+| HF tokenizers qwen3 `tok.encode(text)` | 2.2 | 2.3 |
+| HF tokenizers llama3 (the cl100k-pattern json) | 2.5 | 2.6 |
 
-The o200k rows: tokensim 1752.1/3235.8 (cold/warm), gigatoken
-396.3/664.6, tiktoken 34.7/34.7. The scalar engine the 17.8x
+The o200k rows: tokensim 1877.1/3128.3 (cold/warm, the python),
+the C encode_auto 3156.9 warm, the Rust 3029.4 warm, gigatoken
+409.9/607.6, tiktoken 33.9/33.9. The C `encode_auto` and the
+Python simple call are the same shape: one call, auto threads, no
+caller-owned buffers, no tuning - and both land at the top of the
+table. The Rust warm carries the language's inherent copy (the
+returned slice borrows the tokenizer, so the consumer's owned copy
+is forced by the borrow checker); its zero-copy path is
+`encode_into`. The scalar engine the 17.8x
 claim was measured against is tiktoken's own single-threaded
 `encode_ordinary` call - the simple call, not a specialized API.
 

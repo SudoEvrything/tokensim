@@ -58,6 +58,8 @@ typedef struct tsimd_tokenizer {
     uint32_t magic_;
     tsimd_vocab_t vocab;
     tsimd_pretok_scheme_t scheme;
+    uint32_t *enc_auto;
+    size_t enc_auto_cap;
 
     int spm_kind;
     int spm_dummy_prefix;
@@ -140,6 +142,8 @@ int tsimd_tokenizer_encode_into_raw(tsimd_tokenizer_t *t, const uint8_t *data,
                                    size_t len, uint32_t *buf, size_t cap,
                                    size_t *count);
 
+int tsimd_tokenizer_encode_auto(tsimd_tokenizer_t *t, const uint8_t *data,
+                                size_t len, tsimd_token_sequence_t *out);
 void tsimd_token_sequence_free(tsimd_token_sequence_t *seq);
 
 typedef struct {

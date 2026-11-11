@@ -66,6 +66,8 @@ def run_hf():
         ("hf deepseek",
          "models/reference/deepseek_tokenizer.json"),
         ("hf qwen3", "models/reference/qwen3_tokenizer.json"),
+        ("hf llama3 (the cl100k-pattern json)",
+         "models/reference/llama3_tokenizer.json"),
     ]:
         bench(
             name,
@@ -88,10 +90,11 @@ def run_giga():
 
 
 def run_tokensim():
+    import subprocess
     import tokensim
     for model, fmt in [
-        ("cl100k_base.tiktoken", None),
-        ("o200k_base.tiktoken", None),
+        ("cl100k_base.tiktoken", "cl100k"),
+        ("o200k_base.tiktoken", "o200k"),
     ]:
         path = "models/" + model
         bench(
@@ -100,6 +103,28 @@ def run_tokensim():
             lambda tp: tp.encode(data),
             lambda r: len(r) // 4,
         )
+    def consumer_rate(argv):
+        r = subprocess.run(argv, stdout=subprocess.PIPE, text=True,
+                           check=True)
+        for line in r.stdout.splitlines():
+            if line.startswith("encode:"):
+                return float(line.split("= ")[1].split()[0].rstrip("MB/s"))
+        return float("nan")
+
+    for scheme in ["cl100k", "o200k"]:
+        model = "cl100k_base.tiktoken" if scheme == "cl100k" \
+            else "o200k_base.tiktoken"
+        rate = consumer_rate(
+            ["scripts/consumers/c/life", "models/" + model, "tiktoken",
+             scheme, CORPUS, str(1 << 30), "0", "0", "3"])
+        print(f"tokensim C {model}: {rate:.1f} MB/s (the in-process 3 "
+              "warm reps)")
+        rate = consumer_rate(
+            ["scripts/consumers/rs/target/release/real_life",
+             "models/" + model, "tiktoken", scheme, CORPUS,
+             str(1 << 30), "0", "0", "3"])
+        print(f"tokensim Rust {model}: {rate:.1f} MB/s (the in-process 3 "
+              "warm reps)")
 
 
 if __name__ == "__main__":
