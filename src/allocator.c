@@ -2,7 +2,11 @@
 
 #include <sys/mman.h>
 
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#else
 #include <malloc.h>
+#endif
 #include <pthread.h>
 
 #include <stdint.h>
