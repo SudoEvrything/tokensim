@@ -499,7 +499,9 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
         if (rc == 0) {
             res = PyBytes_FromStringAndSize("", 0);
         } else if (!PyErr_Occurred()) {
-            PyErr_SetString(TokError, "decode failed");
+            PyErr_SetString(TokError,
+                            "decode failed: the input contains an invalid "
+                            "or out-of-range token id");
         }
     } else {
         Py_BEGIN_ALLOW_THREADS
@@ -534,7 +536,9 @@ static PyObject *tok_decode(TokObject *self, PyObject *args) {
     PyBuffer_Release(&view);
     if (rc != 0 || !res) {
         if (!PyErr_Occurred())
-            PyErr_SetString(TokError, "decode failed");
+            PyErr_SetString(TokError,
+                            "decode failed: the input contains an invalid "
+                            "or out-of-range token id");
         return NULL;
     }
     return res;

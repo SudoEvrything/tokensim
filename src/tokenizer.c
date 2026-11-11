@@ -156,7 +156,6 @@ int tsimd_tokenizer_load_model(tsimd_tokenizer_t *t, tsimd_model_format_t fmt,
                               const tsimd_added_token_t *extra,
                               size_t n_extra) {
 
-    tsimd_tokenizer_free(t);
     memset(t, 0, sizeof(*t));
     t->magic_ = TSIMD_TOKENIZER_MAGIC;
     tsimd_pretok_scheme_t det = scheme ? *scheme : TSIMD_PRETOK_GPT2;

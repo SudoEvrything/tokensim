@@ -9,6 +9,7 @@
 
 int main(void) {
     tsimd_tokenizer_t t;
+    memset(&t, 0, sizeof t);
     tsimd_pretok_scheme_t sch = TSIMD_PRETOK_GPT2;
     if (tsimd_tokenizer_load_model(&t, TSIMD_MODEL_TOKENIZER_JSON, QWEN3,
                                    NULL, &sch, NULL, 0) != 0) {

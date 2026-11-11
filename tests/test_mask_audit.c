@@ -108,6 +108,7 @@ int main(void) {
 
     {
         tsimd_tokenizer_t t;
+    memset(&t, 0, sizeof t);
         tsimd_pretok_scheme_t ki = TSIMD_PRETOK_KIMI;
         if (tsimd_tokenizer_load_model(&t, TSIMD_MODEL_TIKTOKEN, KIMI, NULL,
                                        &ki, NULL, 0) != 0) {
@@ -127,6 +128,7 @@ int main(void) {
 
     {
         tsimd_tokenizer_t t;
+    memset(&t, 0, sizeof t);
         tsimd_pretok_scheme_t cl = TSIMD_PRETOK_CL100K;
         if (tsimd_tokenizer_load_model(&t, TSIMD_MODEL_TIKTOKEN, CL100K,
                                        NULL, &cl, NULL, 0) != 0) {

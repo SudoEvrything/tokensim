@@ -309,6 +309,28 @@ def main():
         ("gemma4", ROOT + "/models/reference/gemma4_tokenizer.json"),
         ("qwen2.5", ROOT + "/models/reference/qwen2.5-0.5b_tokenizer.json"),
     ]
+    cache_dir = "/tmp/tokensim_test_cache"
+    os.makedirs(cache_dir, exist_ok=True)
+    src = ROOT + "/models/cl100k_base.tiktoken"
+    with open(src, "rb") as f:
+        data = f.read()
+    with open(cache_dir + "/cl100k_base.tiktoken", "wb") as f:
+        f.write(data)
+    tcache = tsimd.load_model("cl100k_base", cache_dir=cache_dir)
+    ref = tsimd.load(src)
+    b = TEXTS[0].encode("utf-8")
+    if ids_of(tcache, b) != ids_of(ref, b):
+        print("load_model cache mismatch")
+        fails += 1
+    else:
+        print("load_model cache OK")
+    try:
+        tsimd.load_model("no_such_model")
+        print("load_model accepted an unknown model")
+        fails += 1
+    except (tokensim.Error, ValueError):
+        print("load_model unknown-model error OK")
+
     if not hasattr(tokensim, "tokenizer"):
         print("tokensim.tokenizer alias missing")
         fails += 1
