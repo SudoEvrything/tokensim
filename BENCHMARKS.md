@@ -57,21 +57,28 @@ tokenizers (their own ids).
 
 | engine (the call) | cold MB/s | warm MB/s |
 | --- | --- | --- |
-| tokensim, Python `tp.encode(data)` (auto threads) | 1819.8 | **3242.6** |
-| tokensim, C `encode_auto(...)` (the default, 3 warm reps) | - | **2714.4** |
-| tokensim, Rust `tok.encode(doc)` (3 warm reps) | - | 2396.1 |
-| gigatoken `tk.encode(text)` (rayon) | 612.2 | 717.7 |
-| tiktoken `enc.encode_ordinary(text)` (single thread) | 23.7 | 23.7 |
+| tokensim, Python `tp.encode(data)` (auto threads) | 1892.2 | 3196.0 |
+| tokensim, C `encode_auto(...)` (the default entry) | 584.4 | 3021.4 |
+| tokensim, Rust `tok.encode(doc)` (3 warm reps) | 684.3 | **3469.9** |
+| gigatoken `tk.encode(text)` (rayon) | 593.1 | 694.3 |
+| tiktoken `enc.encode_ordinary(text)` (single thread) | 22.7 | 22.7 |
 | HF tokenizers deepseek `tok.encode(text)` | 2.2 | 2.4 |
 | HF tokenizers qwen3 `tok.encode(text)` | 2.2 | 2.3 |
-| HF tokenizers llama3 (the cl100k-pattern json) | 2.5 | 2.6 |
+| HF tokenizers llama3 (the cl100k-pattern json) | 2.4 | 2.6 |
 
-The o200k rows: tokensim 1877.1/3128.3 (cold/warm, the python),
-the C encode_auto 3156.9 warm, the Rust 3029.4 warm, gigatoken
-409.9/607.6, tiktoken 33.9/33.9. The C `encode_auto` and the
-Python simple call are the same shape: one call, auto threads, no
-caller-owned buffers, no tuning - and both land at the top of the
-table. The Rust warm carries the language's inherent copy (the
+The o200k rows: tokensim 1898.1/3027.1 (cold/warm, the python),
+the C encode_auto 3333.7 warm, the Rust 3376.3 warm, gigatoken
+384.2/639.8, tiktoken 34.0/34.0. The cold numbers are the first
+call of a process (the pool spin-up, the cache fills); the warm
+numbers are the steady state every document after costs. The
+engine makes ONE pass over the data - there is no cold pass
+followed by a warm pass on the same bytes. The HF cl100k json is
+not in the repo (the hub download is auth-blocked from this
+network); the llama3 row is the cl100k-pattern json, the closest
+available apple, with its own ids (the count is not comparable by
+design). The C `encode_auto` and the Python simple call are the
+same shape: one call, auto threads, no caller-owned buffers, no
+tuning. The Rust warm carries the language's inherent copy (the
 returned slice borrows the tokenizer, so the consumer's owned copy
 is forced by the borrow checker); its zero-copy path is
 `encode_into`. The scalar engine the 17.8x

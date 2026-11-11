@@ -113,6 +113,7 @@ int main(int argc, char **argv) {
     if (reps < 1) reps = 1;
     double t0 = now();
     double best_enc = 1e18, best_dec = 1e18;
+    double cold_enc = 0, cold_dec = 0;
     for (long rep = 0; rep < reps; rep++) {
     double rep_enc = 0, rep_dec = 0;
     for (size_t off = 0; off < (size_t)fsz; off += doc_bytes) {
@@ -151,6 +152,10 @@ int main(int argc, char **argv) {
     }
     if (rep_enc < best_enc) best_enc = rep_enc;
     if (rep_dec < best_dec) best_dec = rep_dec;
+    if (rep == 0) {
+        cold_enc = rep_enc;
+        cold_dec = rep_dec;
+    }
     }
     double t1 = now();
     printf("input: %ld bytes in %zu docs of %zu bytes\n", fsz, docs, doc_bytes);
@@ -162,6 +167,10 @@ int main(int argc, char **argv) {
            (double)fsz / 1e6 / best_enc);
     printf("decode: %.3f s = %.1f MB/s\n", best_dec,
            (double)fsz / 1e6 / best_dec);
+    printf("encode (cold): %.3f s = %.1f MB/s\n", cold_enc,
+           (double)fsz / 1e6 / cold_enc);
+    printf("decode (cold): %.3f s = %.1f MB/s\n", cold_dec,
+           (double)fsz / 1e6 / cold_dec);
     printf("docs (round trip): %.3f s = %.1f MB/s\n", t1 - t0,
            (double)fsz * reps / 1e6 / (t1 - t0));
 

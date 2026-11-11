@@ -90,6 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut dec_t = 0f64;
     let mut best_enc = f64::MAX;
     let mut best_dec = f64::MAX;
+    let mut cold_enc = 0f64;
+    let mut cold_dec = 0f64;
     let t0 = Instant::now();
     for _rep in 0..reps {
     let mut rep_enc = 0f64;
@@ -131,6 +133,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if rep_dec < best_dec {
         best_dec = rep_dec;
     }
+    if _rep == 0 {
+        cold_enc = rep_enc;
+        cold_dec = rep_dec;
+    }
     }
     let elapsed = t0.elapsed().as_secs_f64();
     println!("input: {} bytes in {} docs of {} bytes", fsz, docs, doc_bytes);
@@ -145,6 +151,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
              fsz as f64 / 1e6 / best_enc);
     println!("decode: {:.3} s = {:.1} MB/s", best_dec,
              fsz as f64 / 1e6 / best_dec);
+    println!("encode (cold): {:.3} s = {:.1} MB/s", cold_enc,
+             fsz as f64 / 1e6 / cold_enc);
+    println!("decode (cold): {:.3} s = {:.1} MB/s", cold_dec,
+             fsz as f64 / 1e6 / cold_dec);
     println!(
         "docs (round trip): {:.3} s = {:.1} MB/s",
         elapsed,
