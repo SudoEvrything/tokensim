@@ -4,8 +4,10 @@
 
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
+#define tsimd_usable_size(p) malloc_size(p)
 #else
 #include <malloc.h>
+#define tsimd_usable_size(p) malloc_usable_size(p)
 #endif
 #include <pthread.h>
 
@@ -139,7 +141,7 @@ void *tsimd_xrealloc(void *p, size_t size) {
 
 void tsimd_xfree(void *p) {
     if (!p) return;
-    size_t sz = malloc_usable_size(p);
+    size_t sz = tsimd_usable_size(p);
     if (sz >= TSIMD_HUGE_MIN) {
         pthread_mutex_lock(&g_huge_mu);
         if (g_huge_keep_n < TSIMD_HUGE_KEEP &&
