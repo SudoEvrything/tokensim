@@ -244,6 +244,7 @@ static size_t kimi_next_span(const uint8_t *d, size_t n, size_t i,
     }
 
     if (m->digit & 1) {
+        if (i + 2 < n && (d[i + 2] & 0x80)) return scalar_span(d, n, i);
         size_t r = run_end(d, n, i, 3);
         return i + 3 < r ? i + 3 : r;
     }

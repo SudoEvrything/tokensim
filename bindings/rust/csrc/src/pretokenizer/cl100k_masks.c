@@ -35,7 +35,7 @@ static inline uint64_t digit_run_splits3(uint64_t d) {
 static inline uint64_t digit_run_splits3_ph(uint64_t dg, int dphase) {
     if (dphase <= 0 || !(dg & 1)) return digit_run_splits3(dg);
 
-    int lead = __builtin_ctzll(~dg);
+    int lead = (~dg == 0) ? 64 : __builtin_ctzll(~dg);
     uint64_t L = dg & ((lead >= 64) ? ~0ULL : ((1ULL << lead) - 1));
     uint64_t dg_post = dg & ~L;
     static const uint64_t m3[3] = {0x9249249249249249ULL,

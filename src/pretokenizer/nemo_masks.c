@@ -247,7 +247,7 @@ static int c2_os_at(const uint8_t *d, size_t idx) {
         if (tb == '/') { seen_slash = 1; continue; }
         if (seen_slash) { trigger = (int)j; break; }
         if (j == 0) {
-            if (r == 0) { trigger = 0; break; }
+            if (r == 0) continue;
             uint8_t pb = d[r - 1];
             if (pb >= 0x80) return -1;
             if (is_other_ascii(pb)) { trigger = 0; break; }
