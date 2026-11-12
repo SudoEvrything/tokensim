@@ -6,7 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 
-const char *g_fixtures_dir = "tests/fixtures";
+const char *g_fixtures_dir = TSIMD_SRC_DIR "/tests/fixtures";
 static char fx[2][512];
 static int fx_slot;
 

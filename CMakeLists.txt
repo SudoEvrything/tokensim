@@ -16,7 +16,7 @@ add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-prot
 
 find_package(Threads REQUIRED)
 
-set(TSIMD_VERSION 1.0.4)
+set(TSIMD_VERSION 1.0.5)
 set(TSIMD_VERSION_MAJOR 1)
 
 add_library(tokensim STATIC

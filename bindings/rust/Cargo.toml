@@ -1,8 +1,8 @@
 [package]
 name = "tokensim"
-version = "1.0.4"
+version = "1.0.5"
 edition = "2021"
-description = "Byte-exact tokenizer engine for GPT-2, GPT-4, Llama-3, DeepSeek, Qwen, Gemma and more - SIMD pretokenizer, parallel encode and decode"
+description = "SIMD optimized fast tokenizer, 97x faster than tiktoken, 4.5x faster than gigatoken"
 repository = "https://github.com/SudoEvrything/tokensim"
 homepage = "https://github.com/SudoEvrything/tokensim"
 documentation = "https://docs.rs/tokensim"

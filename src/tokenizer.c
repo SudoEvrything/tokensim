@@ -156,6 +156,8 @@ int tsimd_tokenizer_load_model(tsimd_tokenizer_t *t, tsimd_model_format_t fmt,
                               const tsimd_added_token_t *extra,
                               size_t n_extra) {
 
+    if (t->magic_ == TSIMD_TOKENIZER_MAGIC)
+        tsimd_tokenizer_free(t);
     memset(t, 0, sizeof(*t));
     t->magic_ = TSIMD_TOKENIZER_MAGIC;
     tsimd_pretok_scheme_t det = scheme ? *scheme : TSIMD_PRETOK_GPT2;
@@ -296,13 +298,13 @@ tsimd_pretok_cache_t *tsimd_spm_worker_cache(tsimd_tokenizer_t *t, size_t idx,
 }
 
 void tsimd_tokenizer_free(tsimd_tokenizer_t *t) {
-    tsimd_xfree(t->enc_auto);
-    t->enc_auto = NULL;
-    t->enc_auto_cap = 0;
     if (t->magic_ != TSIMD_TOKENIZER_MAGIC) {
         memset(t, 0, sizeof(*t));
         return;
     }
+    tsimd_xfree(t->enc_auto);
+    t->enc_auto = NULL;
+    t->enc_auto_cap = 0;
     tsimd_tokenizer_release_pool(t);
     tsimd_serve_state_free(t);
     tsimd_vocab_free(&t->vocab);

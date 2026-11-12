@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn version_is_reported() {
-        assert_eq!(version(), "1.0.4");
+        assert_eq!(version(), "1.0.5");
     }
 
     #[test]

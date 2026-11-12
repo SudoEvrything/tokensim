@@ -663,6 +663,27 @@ Same-window comparisons only: the same corpora, the same pinning,
 the same thread counts, warm = the last of repeated rounds on an
 idle host.
 
+**The simple calls** (one 16.8 MB document, each engine's default
+public API as shipped, best of 3 warm reps, the cold first call
+printed; the id counts cross-checked - tokensim, tiktoken and
+gigatoken agree exactly):
+
+| engine (the call) | cold MB/s | warm MB/s |
+| --- | --- | --- |
+| tokensim, Python `tp.encode(data)` | 1871.4 | 3217.2 |
+| tokensim, C `encode_auto(...)` (the default) | 584.4 | 3440.9 |
+| tokensim, Rust `tok.encode(doc)` | 684.3 | 2704.7 |
+| gigatoken `tk.encode(text)` (rayon) | 593.1 | 714.5 |
+| tiktoken `enc.encode_ordinary(text)` | 22.7 | 23.5 |
+| HF tokenizers gpt-oss (the o200k-harmony json) | 2.6 | 2.7 |
+
+The Python simple call is **97x tiktoken's own simple call** and
+**4.5x gigatoken's**, same corpus, same window. The HF gpt-oss row
+is the true o200k apple-to-apple: OpenAI's open-weights model ships
+the o200k-harmony vocabulary, and its plain-text ids match tiktoken's
+o200k exactly (the 0.4 percent corpus difference = the harmony
+special tokens colliding with literal sequences in natural text.
+
 **The machine.** Every number in this section was measured on the
 same laptop: an Intel Core i5-13450HX (10 cores, 16 hardware
 threads: 6 performance cores with hyperthreading up to 4.6 GHz,

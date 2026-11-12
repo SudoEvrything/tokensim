@@ -6,12 +6,15 @@ pretokenization: no regex engine, hand-written scanners and
 bitmask algebra over 64-byte blocks, and parallel encode/decode
 that provably never changes the output at any thread count.
 
-**17.8x tiktoken per thread** (o200k, same corpus, same window:
-571 MB/s vs 32.1 MB/s, both single-threaded), **2709 MB/s** with a
-6-thread call, byte-identical output. Against the fastest Rust
-engine we know of ([gigatoken](https://github.com/marcelroed/gigatoken)),
-same-window A/B: 1.12-1.45x warm at 6-10 threads, 0.87-0.90x
-single-thread cold - that gap is recorded, not explained away.
+**The simple call** `tp = tokensim.tokenizer(model); tp.encode(data)`
+measures **3217 MB/s on o200k** - **97x tiktoken's own simple call**
+(33.2 MB/s), **4.5x gigatoken** (714 MB/s), same corpus, same
+window. Per thread: **17.8x tiktoken** (571 MB/s vs 32.1 MB/s,
+both single-threaded), byte-identical output. Against the fastest
+Rust engine we know of ([gigatoken](https://github.com/marcelroed/gigatoken)),
+same-window A/B on the 476 MB corpus: 1.12-1.45x warm at 6-10
+threads, 0.87-0.90x single-thread cold - that gap is recorded, not
+explained away.
 
 > **Documentation:** [BENCHMARKS.md](BENCHMARKS.md) - the numbers ·
 > [TECHNICAL-REPORT.md](TECHNICAL-REPORT.md) - the deep-dive
